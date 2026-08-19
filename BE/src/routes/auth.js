@@ -29,12 +29,8 @@ router.get("/google", authController.googleLogin);
  *           type: string
  *         required: true
  *     responses:
- *       200:
- *         description: Đăng nhập thành công, trả về thông tin PTG và set cookie session
- *       400:
- *         description: Thiếu authorization code
- *       500:
- *         description: Xác thực thất bại
+ *       302:
+ *         description: Set cookie session rồi redirect về FE (/admin/albums khi thành công, /admin/login?error=... khi thất bại)
  */
 router.get("/google/callback", authController.googleCallback);
 

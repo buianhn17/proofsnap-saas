@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("node:crypto");
 const albumModel = require("../models/albumModel");
 const photoModel = require("../models/photoModel");
+const clientModel = require("../models/clientModel");
 const redis = require("../config/redis");
 const { applyWatermark } = require("../services/watermarkService");
 const { downloadFileStream, downloadFileBuffer } = require("../services/googleDriveService");
@@ -93,6 +94,36 @@ async function getAlbum(req, res, next) {
   }
 }
 
+async function listPhotos(req, res, next) {
+  try {
+    const { albumId } = req.params;
+    if (req.client.albumId !== albumId) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Phiên không thuộc album này" });
+    }
+
+    const album = await albumModel.findPublicById(albumId);
+    if (!album || album.status !== "active") {
+      return res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
+    }
+
+    const photos = await photoModel.listByAlbumId(albumId);
+    // Không trả drive_file_id / các trường chấm điểm nội bộ (sharpness_score,
+    // eye_status, culling_flag...) cho client - đó là dữ liệu làm việc của PTG.
+    const publicPhotos = photos.map(
+      ({ id, original_base_filename, width, height, created_at }) => ({
+        id,
+        original_base_filename,
+        width,
+        height,
+        created_at,
+      })
+    );
+    res.json({ photos: publicPhotos });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function viewPhoto(req, res, next) {
   try {
     const { albumId, photoId } = req.params;
@@ -142,9 +173,45 @@ async function viewPhoto(req, res, next) {
   }
 }
 
+async function toggleSelection(req, res, next) {
+  try {
+    const { albumId, photoId } = req.params;
+    if (req.client.albumId !== albumId) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Phiên không thuộc album này" });
+    }
+
+    const album = await albumModel.findPublicById(albumId);
+    if (!album || album.status !== "active") {
+      return res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
+    }
+
+    const photo = await photoModel.findByAlbumAndId(albumId, photoId);
+    if (!photo) {
+      return res.status(404).json({ error: "PHOTO_NOT_FOUND", message: "Không tìm thấy ảnh" });
+    }
+
+    const clientAccount = await clientModel.findOrCreateClientAccount({
+      name: req.client.clientName,
+      phone: req.client.clientPhone,
+    });
+    const client = await clientModel.findOrCreateClient({
+      albumId,
+      clientAccountId: clientAccount.id,
+    });
+    const { selected } = await clientModel.toggleSelection({
+      clientId: client.id,
+      photoId,
+    });
+
+    res.json({ selected });
+  } catch (error) {
+    next(error);
+  }
+}
+
 function logout(req, res) {
   res.clearCookie("client_session_token");
   res.json({ message: "Đã đăng xuất khỏi album" });
 }
 
-module.exports = { verifyPin, getAlbum, logout, viewPhoto };
+module.exports = { verifyPin, getAlbum, logout, listPhotos, viewPhoto, toggleSelection };

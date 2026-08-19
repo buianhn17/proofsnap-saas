@@ -54,9 +54,31 @@ router.get("/:albumId", requireClientAuth, clientController.getAlbum);
 
 /**
  * @swagger
+ * /api/public/albums/{albumId}/photos:
+ *   get:
+ *     summary: Liệt kê ảnh trong album cho client (không kèm trường nội bộ của PTG)
+ *     tags: [Client Portal]
+ *     security:
+ *       - clientCookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *     responses:
+ *       200:
+ *         description: Danh sách ảnh an toàn cho client
+ *       401:
+ *         description: Client chưa xác thực
+ *       403:
+ *         description: Phiên không thuộc album
+ *       404:
+ *         description: Không tìm thấy album
+ */
+router.get("/:albumId/photos", requireClientAuth, clientController.listPhotos);
+
+/**
+ * @swagger
  * /api/public/albums/{albumId}/photos/{photoId}/view:
  *   get:
- *     summary: Xem 1 ảnh trong album qua proxy backend (chưa có watermark ở bước này)
+ *     summary: Xem 1 ảnh trong album qua proxy backend (có watermark động nếu album bật watermark)
  *     tags: [Client Portal]
  *     security:
  *       - clientCookieAuth: []
@@ -76,6 +98,37 @@ router.get("/:albumId", requireClientAuth, clientController.getAlbum);
  *         description: Không tìm thấy ảnh hoặc album
  */
 router.get("/:albumId/photos/:photoId/view", requireClientAuth, clientController.viewPhoto);
+
+/**
+ * @swagger
+ * /api/public/albums/{albumId}/photos/{photoId}/select:
+ *   post:
+ *     summary: Toggle thả tim/bỏ thả tim 1 ảnh trong album
+ *     tags: [Client Portal]
+ *     security:
+ *       - clientCookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *       - in: path
+ *         name: photoId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Trạng thái thả tim sau khi toggle
+ *       401:
+ *         description: Client chưa xác thực
+ *       403:
+ *         description: Phiên không thuộc album
+ *       404:
+ *         description: Không tìm thấy ảnh hoặc album
+ */
+router.post(
+  "/:albumId/photos/:photoId/select",
+  requireClientAuth,
+  clientController.toggleSelection
+);
 
 /**
  * @swagger

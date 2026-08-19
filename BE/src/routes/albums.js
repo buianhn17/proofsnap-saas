@@ -1,5 +1,6 @@
 const express = require("express");
 const albumController = require("../controllers/albumController");
+const selectionController = require("../controllers/selectionController");
 const { requireAuth } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
@@ -99,5 +100,25 @@ router
   .get(requireAuth, albumController.getOne)
   .patch(requireAuth, albumController.update)
   .delete(requireAuth, albumController.archive);
+
+/**
+ * @swagger
+ * /api/albums/{albumId}/selections:
+ *   get:
+ *     summary: Xem danh sách khách đã thả tim ảnh nào trong album
+ *     tags: [Albums]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *     responses:
+ *       200:
+ *         description: Danh sách lượt thả tim (kèm tên/SĐT khách)
+ *       401:
+ *         description: Chưa đăng nhập
+ *       404:
+ *         description: Không tìm thấy album
+ */
+router.get("/:albumId/selections", requireAuth, selectionController.listForAlbum);
 
 module.exports = router;

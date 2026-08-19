@@ -8,6 +8,12 @@ const {
 const { encrypt } = require("../utils/crypto");
 const photographerModel = require("../models/photographerModel");
 
+function redirectToLoginWithError(res, code) {
+  const url = new URL("/admin/login", process.env.CLIENT_URL);
+  url.searchParams.set("error", code);
+  res.redirect(url.toString());
+}
+
 // Bước 1: PTG bấm "Đăng nhập bằng Google" -> redirect sang màn hình đồng ý của Google
 function googleLogin(req, res) {
   if (!isGoogleOAuthConfigured) {
@@ -29,7 +35,7 @@ function googleLogin(req, res) {
 async function googleCallback(req, res) {
   const { code } = req.query;
   if (!code) {
-    return res.status(400).json({ error: "Thiếu authorization code từ Google" });
+    return redirectToLoginWithError(res, "missing_code");
   }
 
   try {
@@ -44,10 +50,7 @@ async function googleCallback(req, res) {
     if (!tokens.refresh_token && !photographer) {
       // Trường hợp hiếm: PTG đăng nhập lần đầu mà Google không trả refresh_token.
       // Thường do trình duyệt cache lại consent cũ - yêu cầu thử lại.
-      return res.status(500).json({
-        error:
-          "Không nhận được refresh_token từ Google. Vào https://myaccount.google.com/permissions gỡ quyền truy cập của app rồi đăng nhập lại.",
-      });
+      return redirectToLoginWithError(res, "missing_refresh_token");
     }
 
     if (!photographer) {
@@ -77,19 +80,10 @@ async function googleCallback(req, res) {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // Chưa có frontend nên tạm trả JSON để test qua Swagger/trình duyệt.
-    // Khi có frontend, đổi dòng dưới thành: res.redirect(process.env.CLIENT_URL)
-    res.json({
-      message: "Đăng nhập Google thành công",
-      photographer: {
-        id: photographer.id,
-        email: photographer.email,
-        display_name: photographer.display_name,
-      },
-    });
+    res.redirect(new URL("/admin/albums", process.env.CLIENT_URL).toString());
   } catch (err) {
     console.error("Lỗi Google OAuth callback:", err.message);
-    res.status(500).json({ error: "Xác thực Google thất bại", detail: err.message });
+    redirectToLoginWithError(res, "oauth_failed");
   }
 }
 
