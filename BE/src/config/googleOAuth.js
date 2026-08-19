@@ -1,5 +1,19 @@
 const { google } = require("googleapis");
 
+const requiredOAuthConfig = [
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_REDIRECT_URI",
+];
+const missingOAuthConfig = requiredOAuthConfig.filter((key) => !process.env[key]);
+const isGoogleOAuthConfigured = missingOAuthConfig.length === 0;
+
+if (missingOAuthConfig.length > 0) {
+  console.warn(
+    `Google OAuth chưa được cấu hình đầy đủ: thiếu ${missingOAuthConfig.join(", ")}`
+  );
+}
+
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
@@ -16,4 +30,4 @@ const GOOGLE_OAUTH_SCOPES = [
   "https://www.googleapis.com/auth/drive.file",
 ];
 
-module.exports = { oauth2Client, GOOGLE_OAUTH_SCOPES };
+module.exports = { oauth2Client, GOOGLE_OAUTH_SCOPES, isGoogleOAuthConfigured };

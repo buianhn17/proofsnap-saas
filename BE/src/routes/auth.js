@@ -49,6 +49,8 @@ router.get("/google/callback", authController.googleCallback);
  *         description: Thông tin PTG
  *       401:
  *         description: Chưa đăng nhập
+ *     security:
+ *       - cookieAuth: []
  */
 router.get("/me", requireAuth, authController.me);
 
@@ -61,6 +63,8 @@ router.get("/me", requireAuth, authController.me);
  *     responses:
  *       200:
  *         description: Đã đăng xuất
+ *     security:
+ *       - cookieAuth: []
  */
 router.post("/logout", authController.logout);
 

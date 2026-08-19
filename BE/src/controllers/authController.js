@@ -1,11 +1,22 @@
 const jwt = require("jsonwebtoken");
 const { google } = require("googleapis");
-const { oauth2Client, GOOGLE_OAUTH_SCOPES } = require("../config/googleOAuth");
+const {
+  oauth2Client,
+  GOOGLE_OAUTH_SCOPES,
+  isGoogleOAuthConfigured,
+} = require("../config/googleOAuth");
 const { encrypt } = require("../utils/crypto");
 const photographerModel = require("../models/photographerModel");
 
 // Bước 1: PTG bấm "Đăng nhập bằng Google" -> redirect sang màn hình đồng ý của Google
 function googleLogin(req, res) {
+  if (!isGoogleOAuthConfigured) {
+    return res.status(500).json({
+      error: "Google OAuth chưa được cấu hình",
+      detail: "Hãy điền GOOGLE_CLIENT_ID và GOOGLE_CLIENT_SECRET trong file .env",
+    });
+  }
+
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline", // bắt buộc để nhận được refresh_token
     prompt: "consent", // bắt buộc để Google luôn trả refresh_token, kể cả các lần đăng nhập sau

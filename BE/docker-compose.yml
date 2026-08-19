@@ -1,0 +1,29 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: lensproof_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lensproof
+      POSTGRES_PASSWORD: lensproof_dev_password
+      POSTGRES_DB: lensproof
+    ports:
+      - "5433:5432"
+    volumes:
+      - lensproof_pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/02-001_initial_schema.sql
+      - ./db/lensproof_schema.sql:/docker-entrypoint-initdb.d/03-lensproof_schema.sql
+
+  redis:
+    image: redis:7-alpine
+    container_name: lensproof_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - lensproof_redisdata:/data
+
+volumes:
+  lensproof_pgdata:
+  lensproof_redisdata:

@@ -33,9 +33,17 @@ async function updateRefreshToken(photographerId, encryptedRefreshToken) {
   );
 }
 
+async function updateDriveRootFolder(photographerId, driveRootFolderId) {
+  await pool.query(
+    "UPDATE photographers SET drive_root_folder_id = $1, updated_at = now() WHERE id = $2",
+    [driveRootFolderId, photographerId]
+  );
+}
+
 module.exports = {
   findByGoogleId,
   findById,
   createPhotographer,
   updateRefreshToken,
+  updateDriveRootFolder,
 };
