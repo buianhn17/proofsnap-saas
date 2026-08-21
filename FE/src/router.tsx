@@ -20,6 +20,15 @@ function AdminAuthScope() {
 
 export const router = createBrowserRouter([
   { path: "/", element: <Navigate to="/admin/albums" replace /> },
+  // Trang thử nghiệm nội bộ Bước 1.3 (AI culling) — cố ý không nằm trong AdminLayout/nav,
+  // chỉ truy cập trực tiếp qua URL khi cần chạy thử nghiệm/calibrate ngưỡng.
+  // Lazy-load vì trang này kéo theo @mediapipe/tasks-vision, không nên tính vào bundle chính.
+  {
+    path: "/dev/culling-test",
+    lazy: async () => ({
+      Component: (await import("./pages/dev/CullingTestPage")).default,
+    }),
+  },
   {
     path: "/admin",
     element: <AdminAuthScope />,
@@ -35,6 +44,14 @@ export const router = createBrowserRouter([
               { path: "albums", element: <AlbumsPage /> },
               { path: "albums/new", element: <CreateAlbumPage /> },
               { path: "albums/:albumId", element: <AlbumDetailPage /> },
+              // Bước 1.6 — bước duyệt/lọc ảnh (culling) tiền-upload. Lazy-load vì kéo theo
+              // @mediapipe/tasks-vision qua culling worker, không nên tính vào bundle chính.
+              {
+                path: "albums/:albumId/cull",
+                lazy: async () => ({
+                  Component: (await import("./pages/admin/AlbumCullPage")).default,
+                }),
+              },
             ],
           },
         ],

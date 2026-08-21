@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
 import { PIN_PATTERN } from "../../lib/validation";
@@ -9,6 +9,7 @@ import {
 } from "../../lib/compressionPresets";
 import type { Album, Photo } from "../../lib/types";
 import PhotoUploadPanel from "../../components/PhotoUploadPanel";
+import LocalFolderPicker from "../../components/LocalFolderPicker";
 
 function formatDateTime(value: string | null) {
   if (!value) return "Không giới hạn";
@@ -22,8 +23,16 @@ function toDatetimeLocalValue(iso: string) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+interface AlbumDetailLocationState {
+  /** Bước 1.6 — danh sách ảnh "giữ" khi điều hướng về từ trang duyệt culling. */
+  keptFiles?: File[];
+}
+
 export default function AlbumDetailPage() {
   const { albumId } = useParams<{ albumId: string }>();
+  const location = useLocation();
+  const keptFiles = (location.state as AlbumDetailLocationState | null)
+    ?.keptFiles;
   const [album, setAlbum] = useState<Album | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -391,7 +400,27 @@ export default function AlbumDetailPage() {
       <div className="mt-8">
         <h2 className="text-lg font-semibold text-slate-900">Upload ảnh</h2>
         {canUpload ? (
-          <div className="mt-3">
+          <div className="mt-3 space-y-6">
+            <div>
+              <h3 className="text-sm font-medium text-slate-700">
+                Nhập từ thư mục máy tính (RAW + JPG)
+              </h3>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <LocalFolderPicker />
+                <Link
+                  to={`/admin/albums/${album.id}/cull`}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Duyệt & lọc ảnh trước khi upload
+                </Link>
+              </div>
+            </div>
+            {keptFiles && keptFiles.length > 0 && (
+              <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                Đã nhận {keptFiles.length} ảnh "giữ" từ bước duyệt culling — đang
+                tự động thêm vào hàng đợi upload bên dưới.
+              </p>
+            )}
             <PhotoUploadPanel
               albumId={album.id}
               preset={
@@ -400,6 +429,7 @@ export default function AlbumDetailPage() {
                 ) ?? COMPRESSION_PRESETS[1]
               }
               onUploaded={handleUploaded}
+              initialFiles={keptFiles}
             />
           </div>
         ) : (

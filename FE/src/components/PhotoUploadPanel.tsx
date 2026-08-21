@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
@@ -17,6 +17,9 @@ interface PhotoUploadPanelProps {
   albumId: string;
   preset: CompressionPreset;
   onUploaded: (photo: Photo, thumbnailUrl: string) => void;
+  /** Bước 1.6 — danh sách ảnh "giữ" từ trang duyệt culling, tự động đưa vào hàng đợi
+   * upload ngay khi panel này mount (ví dụ sau khi điều hướng từ AlbumCullPage về). */
+  initialFiles?: File[];
 }
 
 async function compressForPreset(file: File, preset: CompressionPreset) {
@@ -32,9 +35,18 @@ export default function PhotoUploadPanel({
   albumId,
   preset,
   onUploaded,
+  initialFiles,
 }: PhotoUploadPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<UploadItem[]>([]);
+  const consumedInitialFiles = useRef(false);
+
+  useEffect(() => {
+    if (consumedInitialFiles.current) return;
+    if (!initialFiles || initialFiles.length === 0) return;
+    consumedInitialFiles.current = true;
+    initialFiles.forEach((file) => uploadOne(file));
+  }, [initialFiles]);
 
   function updateItem(id: string, patch: Partial<UploadItem>) {
     setItems((prev) =>
