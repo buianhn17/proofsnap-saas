@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
+    "@tanstack/react-virtual": "^3.14.10",
     "axios": "^1.19.0",
     "browser-image-compression": "^2.0.2",
     "react": "^19.2.8",

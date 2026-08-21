@@ -28,6 +28,27 @@ async function findOrCreateClientAccount({ name, phone }) {
   return result.rows[0];
 }
 
+// Bước 2.2 — tra cứu thuần đọc, KHÔNG tạo mới, dùng cho các endpoint chỉ xem (ví dụ liệt kê
+// ghi chú của chính khách) để không vô tình tạo client_accounts/clients khi khách chưa từng
+// bấm tim/ghi chú lần nào — đúng theo ghi chú thiết kế trong lensproof_schema.sql mục 11.
+async function findClientAccountByPhone(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  const email = `${normalizedPhone}@client.lensproof.local`;
+  const result = await pool.query(
+    "SELECT id, email, full_name, phone_number FROM client_accounts WHERE email = $1",
+    [email]
+  );
+  return result.rows[0] || null;
+}
+
+async function findClient({ albumId, clientAccountId }) {
+  const result = await pool.query(
+    "SELECT id, album_id, client_account_id FROM clients WHERE album_id = $1 AND client_account_id = $2",
+    [albumId, clientAccountId]
+  );
+  return result.rows[0] || null;
+}
+
 async function findOrCreateClient({ albumId, clientAccountId }) {
   const result = await pool.query(
     `INSERT INTO clients (album_id, client_account_id)
@@ -73,6 +94,8 @@ async function listSelectionsForAlbum(albumId) {
 module.exports = {
   findOrCreateClientAccount,
   findOrCreateClient,
+  findClientAccountByPhone,
+  findClient,
   toggleSelection,
   listSelectionsForAlbum,
 };

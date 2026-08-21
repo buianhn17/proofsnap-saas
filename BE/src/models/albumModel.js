@@ -93,6 +93,22 @@ async function archiveAlbum(albumId, photographerId) {
   return result.rows[0] || null;
 }
 
+// Bước 2.1 — tự động khóa album khi đã qua selection_deadline theo giờ SERVER (không
+// phải giờ client gửi lên). Không cần photographer_id vì đây là hành động hệ thống, không
+// phải hành động của PTG. Trả về row vừa khóa, hoặc null nếu không có gì để khóa (đã khóa
+// từ trước / chưa hết hạn / không đặt deadline) — middleware dùng giá trị trả về để phân
+// biệt "vừa hết hạn" với "đã khóa từ trước".
+async function lockAlbumIfExpired(albumId) {
+  const result = await pool.query(
+    `UPDATE albums SET is_locked = true, updated_at = now()
+     WHERE id = $1 AND is_locked = false
+       AND selection_deadline IS NOT NULL AND selection_deadline < now()
+     RETURNING ${ALBUM_COLUMNS}`,
+    [albumId]
+  );
+  return result.rows[0] || null;
+}
+
 module.exports = {
   listByPhotographerId,
   findByIdForPhotographer,
@@ -100,4 +116,5 @@ module.exports = {
   createAlbum,
   updateAlbum,
   archiveAlbum,
+  lockAlbumIfExpired,
 };

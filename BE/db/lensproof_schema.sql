@@ -255,8 +255,9 @@ CREATE TABLE annotations (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     photo_id      UUID NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
     client_id     UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-    pos_x_pct     NUMERIC(5,2) NOT NULL CHECK (pos_x_pct BETWEEN 0 AND 100), -- % theo chiều rộng ảnh
+    pos_x_pct     NUMERIC(5,2) NOT NULL CHECK (pos_x_pct BETWEEN 0 AND 100), -- % theo chiều rộng ảnh, tâm bounding-box của nét vẽ
     pos_y_pct     NUMERIC(5,2) NOT NULL CHECK (pos_y_pct BETWEEN 0 AND 100),
+    path_pct      JSONB,          -- mảng điểm [{"x":.., "y":..}] (0-100) khách vẽ tự do trên ảnh; NULL = chỉ 1 điểm (dùng pos_x_pct/pos_y_pct)
     note_text     TEXT NOT NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );

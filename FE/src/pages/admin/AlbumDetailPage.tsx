@@ -8,7 +8,9 @@ import {
   getPresetLabel,
 } from "../../lib/compressionPresets";
 import type { Album, Photo } from "../../lib/types";
-import PhotoUploadPanel from "../../components/PhotoUploadPanel";
+import PhotoUploadPanel, {
+  type UploadQueueItem,
+} from "../../components/PhotoUploadPanel";
 import LocalFolderPicker from "../../components/LocalFolderPicker";
 
 function formatDateTime(value: string | null) {
@@ -24,15 +26,16 @@ function toDatetimeLocalValue(iso: string) {
 }
 
 interface AlbumDetailLocationState {
-  /** Bước 1.6 — danh sách ảnh "giữ" khi điều hướng về từ trang duyệt culling. */
-  keptFiles?: File[];
+  /** Bước 1.6 / 2.3 — danh sách ảnh "giữ" khi điều hướng về từ trang duyệt culling, kèm
+   * scene_id/burst_cluster_id đã tạo trước đó (nếu có). */
+  keptUploadItems?: UploadQueueItem[];
 }
 
 export default function AlbumDetailPage() {
   const { albumId } = useParams<{ albumId: string }>();
   const location = useLocation();
-  const keptFiles = (location.state as AlbumDetailLocationState | null)
-    ?.keptFiles;
+  const keptUploadItems = (location.state as AlbumDetailLocationState | null)
+    ?.keptUploadItems;
   const [album, setAlbum] = useState<Album | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -413,11 +416,17 @@ export default function AlbumDetailPage() {
                 >
                   Duyệt & lọc ảnh trước khi upload
                 </Link>
+                <Link
+                  to={`/admin/albums/${album.id}/annotations`}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Xem ghi chú khách hàng
+                </Link>
               </div>
             </div>
-            {keptFiles && keptFiles.length > 0 && (
+            {keptUploadItems && keptUploadItems.length > 0 && (
               <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                Đã nhận {keptFiles.length} ảnh "giữ" từ bước duyệt culling — đang
+                Đã nhận {keptUploadItems.length} ảnh "giữ" từ bước duyệt culling — đang
                 tự động thêm vào hàng đợi upload bên dưới.
               </p>
             )}
@@ -429,7 +438,7 @@ export default function AlbumDetailPage() {
                 ) ?? COMPRESSION_PRESETS[1]
               }
               onUploaded={handleUploaded}
-              initialFiles={keptFiles}
+              initialItems={keptUploadItems}
             />
           </div>
         ) : (

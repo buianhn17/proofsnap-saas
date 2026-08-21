@@ -11,6 +11,7 @@ import {
   isFileSystemAccessSupported,
   pickLocalPhotoFolder,
   type LocalFolderScanResult,
+  type LocalPhotoFile,
 } from "../../lib/localFolderImport";
 import type {
   CullingTestItem,
@@ -21,10 +22,24 @@ import { classifyCullingFlag, type CullingFlag } from "../../lib/culling/culling
 import { groupScenesAndBursts } from "../../lib/culling/sceneGrouping";
 import { pickBestInGroup } from "../../lib/culling/burstRepresentative";
 import { cropFaceFromFile } from "../../lib/culling/faceCrop";
+import {
+  copyKeptPairsToNewFolder,
+  deleteRejectedPairsFromOriginal,
+  type LocalPhotoActionPair,
+} from "../../lib/localFileActions";
+import type { UploadQueueItem } from "../../components/PhotoUploadPanel";
 import type { Album } from "../../lib/types";
 import type { EyeStatus } from "../../lib/culling/types";
 
 type Decision = "keep" | "reject" | "undecided";
+
+// Bước 1.9 — trạng thái của hành động copy/xoá file cục bộ đang chạy (nếu có).
+type LocalActionKind = "copy" | "delete";
+type LocalActionState =
+  | { kind: "idle" }
+  | { kind: "running"; action: LocalActionKind; done: number; total: number }
+  | { kind: "done"; action: LocalActionKind; message: string }
+  | { kind: "error"; action: LocalActionKind; message: string };
 
 const EYE_LABEL: Record<EyeStatus, string> = {
   open: "Mở",
@@ -221,6 +236,116 @@ export default function AlbumCullPage() {
     return map;
   }, [items]);
 
+  // Bước 1.9 — ghép mỗi ảnh JPG đã duyệt với file RAW cùng cặp (nếu có, theo kết quả ghép
+  // cặp ở Bước 1.2) để hành động copy/xoá áp dụng trên cả cặp RAW+JPG, không chỉ riêng JPG.
+  const jpgPathToRaw = useMemo(() => {
+    const map = new Map<string, LocalPhotoFile>();
+    if (!scanResult) return map;
+    for (const pair of scanResult.pairing.pairs) {
+      map.set(pair.jpg.relativePath, pair.raw);
+    }
+    return map;
+  }, [scanResult]);
+
+  const { keptPairs, rejectedPairs } = useMemo(() => {
+    const kept: LocalPhotoActionPair[] = [];
+    const rejected: LocalPhotoActionPair[] = [];
+    for (const item of items) {
+      const path = item.file.relativePath;
+      const decision = decisions[path] ?? "undecided";
+      const pair: LocalPhotoActionPair = {
+        jpg: item.file,
+        raw: jpgPathToRaw.get(path) ?? null,
+      };
+      if (decision === "keep") kept.push(pair);
+      else if (decision === "reject") rejected.push(pair);
+    }
+    return { keptPairs: kept, rejectedPairs: rejected };
+  }, [items, decisions, jpgPathToRaw]);
+
+  const [localAction, setLocalAction] = useState<LocalActionState>({
+    kind: "idle",
+  });
+
+  async function handleCopyKept() {
+    if (keptPairs.length === 0) return;
+    setLocalAction({
+      kind: "running",
+      action: "copy",
+      done: 0,
+      total: keptPairs.length,
+    });
+    try {
+      const result = await copyKeptPairsToNewFolder(keptPairs, (p) =>
+        setLocalAction({
+          kind: "running",
+          action: "copy",
+          done: p.copiedFiles,
+          total: p.totalFiles,
+        })
+      );
+      if (result) {
+        setLocalAction({
+          kind: "done",
+          action: "copy",
+          message: `Đã sao chép ${result.copiedFiles} file sang thư mục "${result.folderName}".`,
+        });
+      } else {
+        setLocalAction({ kind: "idle" });
+      }
+    } catch (err) {
+      setLocalAction({
+        kind: "error",
+        action: "copy",
+        message: err instanceof Error ? err.message : "Sao chép thất bại",
+      });
+    }
+  }
+
+  async function handleDeleteRejected() {
+    if (!scanResult || rejectedPairs.length === 0) return;
+    const fileCount = rejectedPairs.reduce(
+      (sum, p) => sum + 1 + (p.raw ? 1 : 0),
+      0
+    );
+    const confirmed = window.confirm(
+      `Xoá vĩnh viễn ${fileCount} file (RAW+JPG) đã bị loại khỏi thư mục gốc trên máy?\n\n` +
+        `Hành động này KHÔNG THỂ HOÀN TÁC.`
+    );
+    if (!confirmed) return;
+
+    setLocalAction({
+      kind: "running",
+      action: "delete",
+      done: 0,
+      total: rejectedPairs.length,
+    });
+    try {
+      const result = await deleteRejectedPairsFromOriginal(
+        scanResult.rootHandle,
+        rejectedPairs,
+        (p) =>
+          setLocalAction({
+            kind: "running",
+            action: "delete",
+            done: p.deletedFiles,
+            total: p.totalFiles,
+          })
+      );
+      setLocalAction({
+        kind: "done",
+        action: "delete",
+        message: `Đã xoá ${result.deletedFiles} file khỏi thư mục gốc.`,
+      });
+    } catch (err) {
+      setLocalAction({
+        kind: "error",
+        action: "delete",
+        message: err instanceof Error ? err.message : "Xoá thất bại",
+      });
+    }
+  }
+
   // Bước 1.7 — gom scene (buổi chụp) theo thời gian EXIF + đổi khung hình lớn, và burst
   // (loạt ảnh liên tiếp giống nhau) theo dHash, để hiển thị "Theo buổi chụp".
   const scenes = useMemo<SceneGroup[]>(() => {
@@ -366,11 +491,83 @@ export default function AlbumCullPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewIndex, moveTo]);
 
-  function handleContinueToUpload() {
-    const keptFiles = items
+  // Bước 2.3 (nền) — trước khi điều hướng sang upload, materialize scenes/burst_clusters đã
+  // gom ở Bước 1.7 (hiện chỉ là id tạm trong state của trang này) thành row thật trên BE, để
+  // mỗi ảnh "giữ" upload kèm đúng scene_id/burst_cluster_id/is_best_in_cluster — cho phép
+  // Client Portal nhận diện ảnh cùng cụm (công cụ so sánh song song, Bước 2.3).
+  async function handleContinueToUpload() {
+    const sceneIdMap = new Map<number, string>();
+    const burstIdMap = new Map<number, string>();
+
+    try {
+      if (albumId && scenes.length > 0) {
+        const { data: sceneRes } = await api.post<{
+          scenes: { id: string }[];
+        }>(`/api/albums/${albumId}/scenes`, {
+          scenes: scenes.map((scene) => ({
+            started_at: new Date(scene.startMs).toISOString(),
+            ended_at: new Date(scene.endMs).toISOString(),
+            sort_order: scene.sceneId,
+          })),
+        });
+        scenes.forEach((scene, index) => {
+          sceneIdMap.set(scene.sceneId, sceneRes.scenes[index].id);
+        });
+
+        const burstEntries = scenes.flatMap((scene) =>
+          scene.bursts.map((burst) => ({
+            localSceneId: scene.sceneId,
+            localBurstId: burst.burstId,
+          }))
+        );
+        if (burstEntries.length > 0) {
+          const { data: burstRes } = await api.post<{
+            clusters: { id: string }[];
+          }>(`/api/albums/${albumId}/burst-clusters`, {
+            clusters: burstEntries.map((entry) => ({
+              scene_id: sceneIdMap.get(entry.localSceneId) ?? null,
+            })),
+          });
+          burstEntries.forEach((entry, index) => {
+            burstIdMap.set(entry.localBurstId, burstRes.clusters[index].id);
+          });
+        }
+      }
+    } catch (err) {
+      // Không chặn upload nếu riêng bước lưu scene/burst lỗi — ảnh vẫn upload bình thường,
+      // chỉ là Client Portal sẽ không gom được nhóm "ảnh giống nhau" cho công cụ so sánh.
+      console.error("Không lưu được scene/burst cluster:", err);
+    }
+
+    const groupingByPath = new Map<
+      string,
+      { localSceneId: number; localBurstId: number; isBest: boolean }
+    >();
+    for (const scene of scenes) {
+      for (const burst of scene.bursts) {
+        for (const item of burst.items) {
+          groupingByPath.set(item.file.relativePath, {
+            localSceneId: scene.sceneId,
+            localBurstId: burst.burstId,
+            isBest: item === burst.representative,
+          });
+        }
+      }
+    }
+
+    const keptUploadItems: UploadQueueItem[] = items
       .filter((item) => (decisions[item.file.relativePath] ?? "undecided") === "keep")
-      .map((item) => item.file.file);
-    navigate(`/admin/albums/${albumId}`, { state: { keptFiles } });
+      .map((item) => {
+        const grouping = groupingByPath.get(item.file.relativePath);
+        return {
+          file: item.file.file,
+          sceneId: grouping ? sceneIdMap.get(grouping.localSceneId) : undefined,
+          burstClusterId: grouping ? burstIdMap.get(grouping.localBurstId) : undefined,
+          isBestInCluster: grouping?.isBest ?? false,
+        };
+      });
+
+    navigate(`/admin/albums/${albumId}`, { state: { keptUploadItems } });
   }
 
   function renderPhotoCard(
@@ -648,6 +845,56 @@ export default function AlbumCullPage() {
               ))}
             </div>
           )}
+
+          <div className="mt-6 rounded-md border border-slate-200 bg-white p-4">
+            <h3 className="text-sm font-semibold text-slate-900">
+              Hành động cuối trên file gốc trên máy (tuỳ chọn)
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Áp dụng cho cả cặp RAW+JPG theo quyết định giữ/loại ở trên. Có
+              thể bỏ qua và bấm thẳng "Tiếp tục upload" bên dưới nếu không cần
+              đụng tới thư mục gốc.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleCopyKept}
+                disabled={
+                  keptPairs.length === 0 || localAction.kind === "running"
+                }
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Sao chép {keptPairs.length} cặp ảnh "giữ" sang thư mục mới
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteRejected}
+                disabled={
+                  rejectedPairs.length === 0 || localAction.kind === "running"
+                }
+                className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                Xoá {rejectedPairs.length} cặp ảnh "loại" khỏi thư mục gốc
+              </button>
+            </div>
+
+            {localAction.kind === "running" && (
+              <p className="mt-3 text-sm text-slate-600">
+                {localAction.action === "copy" ? "Đang sao chép" : "Đang xoá"}{" "}
+                {localAction.done}/{localAction.total} file...
+              </p>
+            )}
+            {localAction.kind === "done" && (
+              <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                {localAction.message}
+              </p>
+            )}
+            {localAction.kind === "error" && (
+              <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                {localAction.message}
+              </p>
+            )}
+          </div>
 
           <div className="sticky bottom-0 mt-6 flex items-center justify-between rounded-md border border-slate-200 bg-white/95 px-4 py-3 text-sm shadow-md backdrop-blur">
             <span className="text-slate-600">

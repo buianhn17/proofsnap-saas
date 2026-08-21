@@ -11,4 +11,10 @@ export interface LocalPhotoFile {
   relativePath: string;
   extension: string;
   kind: LocalPhotoKind;
+  /** Handle gốc của chính file này — dùng để ghi/copy (Bước 1.9). FileSystemHandle hỗ trợ
+   * structured clone nên truyền qua postMessage vào culling.worker.ts vẫn an toàn. */
+  handle: FileSystemFileHandle;
+  /** Handle thư mục cha trực tiếp chứa file này — cần để xoá qua removeEntry() (Bước 1.9),
+   * vì FileSystemFileHandle không tự xoá được chính nó trong lib.dom hiện tại. */
+  parentDirHandle: FileSystemDirectoryHandle;
 }

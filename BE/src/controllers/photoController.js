@@ -1,7 +1,9 @@
 const path = require("node:path");
 const albumModel = require("../models/albumModel");
 const photoModel = require("../models/photoModel");
-const { uploadJpeg, deleteFile } = require("../services/googleDriveService");
+const sceneModel = require("../models/sceneModel");
+const burstClusterModel = require("../models/burstClusterModel");
+const { uploadJpeg, deleteFile, downloadFileStream } = require("../services/googleDriveService");
 
 function badRequest(message, code = "INVALID_PHOTO") {
   const error = new Error(message);
@@ -90,6 +92,25 @@ async function upload(req, res, next) {
       throw badRequest("culling_flag không hợp lệ");
     }
 
+    // Bước 2.3 (nền) — scene_id/burst_cluster_id trỏ tới các row đã tạo trước qua
+    // POST /:albumId/scenes và /:albumId/burst-clusters (AlbumCullPage gọi 2 API đó trước
+    // khi upload). Xác thực chúng thuộc đúng album này trước khi gắn vào photo, tránh 1
+    // photographer gắn nhầm/cố ý gắn scene của album khác.
+    const sceneId = req.body.scene_id || null;
+    const burstClusterId = req.body.burst_cluster_id || null;
+    const isBestInCluster = req.body.is_best_in_cluster === "true" || req.body.is_best_in_cluster === true;
+
+    if (sceneId) {
+      const scene = await sceneModel.findByIdAndAlbum(sceneId, album.id);
+      if (!scene) throw badRequest("scene_id không thuộc album này");
+    }
+    if (burstClusterId) {
+      const cluster = await burstClusterModel.findByIdWithScene(burstClusterId);
+      if (!cluster || (cluster.scene_album_id && cluster.scene_album_id !== album.id)) {
+        throw badRequest("burst_cluster_id không thuộc album này");
+      }
+    }
+
     driveFile = await uploadJpeg(
       req.photographer.photographerId,
       album.drive_folder_id,
@@ -106,7 +127,14 @@ async function upload(req, res, next) {
       sharpnessScore,
       eyeStatus,
       cullingFlag,
+      sceneId,
+      burstClusterId,
+      isBestInCluster,
     });
+
+    if (burstClusterId && isBestInCluster) {
+      await burstClusterModel.setBestPhoto(burstClusterId, photo.id);
+    }
 
     res.status(201).json({ photo });
   } catch (error) {
@@ -121,4 +149,33 @@ async function upload(req, res, next) {
   }
 }
 
-module.exports = { list, upload };
+// Bước 2.2 — trang Admin xem lại ghi chú khách hàng (AlbumAnnotationsPage.tsx) cần vẽ vị trí
+// đã khoanh lên đúng ảnh gốc, nhưng Admin Portal trước giờ chưa từng có endpoint nào để tải
+// lại ảnh đã upload (gallery hiện tại chỉ hiện được thumbnail blob URL tạo lúc upload, mất
+// ngay khi tải lại trang) — thêm route xem ảnh gốc qua Drive, không watermark vì đây là ảnh
+// PTG xem cho chính mình, khác endpoint /view có watermark của Client Portal.
+async function view(req, res, next) {
+  try {
+    const album = await albumModel.findByIdForPhotographer(
+      req.params.albumId,
+      req.photographer.photographerId
+    );
+    if (!album) {
+      return res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
+    }
+
+    const photo = await photoModel.findByAlbumAndId(album.id, req.params.photoId);
+    if (!photo) {
+      return res.status(404).json({ error: "PHOTO_NOT_FOUND", message: "Không tìm thấy ảnh" });
+    }
+
+    const stream = await downloadFileStream(req.photographer.photographerId, photo.drive_file_id);
+    res.setHeader("Content-Type", "image/jpeg");
+    stream.on("error", (err) => next(err));
+    stream.pipe(res);
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = { list, upload, view };

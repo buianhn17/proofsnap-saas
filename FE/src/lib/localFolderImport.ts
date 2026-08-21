@@ -15,6 +15,8 @@ export interface LocalFolderScanResult {
   skippedCount: number;
   /** Kết quả ghép cặp RAW/JPG theo tên gốc — xem Bước 1.2 trong photoPairing.ts. */
   pairing: PairLocalPhotosResult;
+  /** Handle thư mục gốc đã chọn — cần lại ở Bước 1.9 để xin quyền readwrite trước khi xoá. */
+  rootHandle: FileSystemDirectoryHandle;
 }
 
 // Phần mở rộng RAW phổ biến theo hãng máy ảnh.
@@ -102,8 +104,16 @@ async function walkDirectory(
       continue;
     }
 
-    const file = await (handle as FileSystemFileHandle).getFile();
-    files.push({ file, relativePath: path, extension, kind });
+    const fileHandle = handle as FileSystemFileHandle;
+    const file = await fileHandle.getFile();
+    files.push({
+      file,
+      relativePath: path,
+      extension,
+      kind,
+      handle: fileHandle,
+      parentDirHandle: directoryHandle,
+    });
   }
 }
 
@@ -135,5 +145,6 @@ export async function pickLocalPhotoFolder(): Promise<LocalFolderScanResult | nu
     files,
     skippedCount: skipped.count,
     pairing: pairLocalPhotoFiles(files),
+    rootHandle: directoryHandle,
   };
 }

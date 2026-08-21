@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const albumModel = require("../models/albumModel");
 const photoModel = require("../models/photoModel");
 const clientModel = require("../models/clientModel");
+const annotationModel = require("../models/annotationModel");
 const redis = require("../config/redis");
 const { applyWatermark } = require("../services/watermarkService");
 const { downloadFileStream, downloadFileBuffer } = require("../services/googleDriveService");
@@ -88,7 +89,13 @@ async function getAlbum(req, res, next) {
     if (!album || album.status !== "active") {
       return res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
     }
-    res.json({ album: publicAlbum(album), client: { name: req.client.clientName, phone: req.client.clientPhone } });
+    res.json({
+      album: publicAlbum(album),
+      client: { name: req.client.clientName, phone: req.client.clientPhone },
+      // Bước 2.1 — FE tính lệch giờ máy khách so với server từ trường này, để đồng hồ đếm
+      // ngược không phụ thuộc vào giờ hệ thống của trình duyệt (BE vẫn là nơi chốt hạn thật).
+      server_time: new Date().toISOString(),
+    });
   } catch (error) {
     next(error);
   }
@@ -109,13 +116,16 @@ async function listPhotos(req, res, next) {
     const photos = await photoModel.listByAlbumId(albumId);
     // Không trả drive_file_id / các trường chấm điểm nội bộ (sharpness_score,
     // eye_status, culling_flag...) cho client - đó là dữ liệu làm việc của PTG.
+    // burst_cluster_id thì trả ra (Bước 2.3) để FE gom nhóm/gợi ý ảnh giống nhau cho công cụ
+    // so sánh song song — không lộ thông tin nội bộ, chỉ là 1 id để nhóm ảnh trong gallery.
     const publicPhotos = photos.map(
-      ({ id, original_base_filename, width, height, created_at }) => ({
+      ({ id, original_base_filename, width, height, created_at, burst_cluster_id }) => ({
         id,
         original_base_filename,
         width,
         height,
         created_at,
+        burst_cluster_id,
       })
     );
     res.json({ photos: publicPhotos });
@@ -209,9 +219,131 @@ async function toggleSelection(req, res, next) {
   }
 }
 
+// Bước 2.2 — validate payload ghi chú khoanh vùng gửi lên từ Client Portal.
+const MAX_PATH_POINTS = 500;
+
+function isPercent(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
+}
+
+function validateAnnotationInput(body) {
+  const { pos_x_pct: posXPct, pos_y_pct: posYPct, path_pct: pathPct, note_text: noteText } = body || {};
+
+  if (!isPercent(posXPct) || !isPercent(posYPct)) {
+    throw invalidAccess("pos_x_pct/pos_y_pct phải là số từ 0 đến 100", "INVALID_ANNOTATION_POSITION");
+  }
+
+  let normalizedPath = null;
+  if (pathPct !== undefined && pathPct !== null) {
+    if (!Array.isArray(pathPct) || pathPct.length === 0 || pathPct.length > MAX_PATH_POINTS) {
+      throw invalidAccess(
+        `path_pct phải là mảng có từ 1 đến ${MAX_PATH_POINTS} điểm`,
+        "INVALID_ANNOTATION_PATH"
+      );
+    }
+    normalizedPath = pathPct.map((point) => {
+      if (!point || !isPercent(point.x) || !isPercent(point.y)) {
+        throw invalidAccess("Mỗi điểm trong path_pct phải có x,y là số từ 0 đến 100", "INVALID_ANNOTATION_PATH");
+      }
+      return { x: point.x, y: point.y };
+    });
+  }
+
+  if (typeof noteText !== "string" || noteText.trim().length < 1 || noteText.trim().length > 2000) {
+    throw invalidAccess("Ghi chú phải từ 1 đến 2000 ký tự", "INVALID_ANNOTATION_NOTE");
+  }
+
+  return { posXPct, posYPct, pathPct: normalizedPath, noteText: noteText.trim() };
+}
+
+async function createAnnotation(req, res, next) {
+  try {
+    const { albumId, photoId } = req.params;
+    if (req.client.albumId !== albumId) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Phiên không thuộc album này" });
+    }
+
+    const album = await albumModel.findPublicById(albumId);
+    if (!album || album.status !== "active") {
+      return res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
+    }
+
+    const photo = await photoModel.findByAlbumAndId(albumId, photoId);
+    if (!photo) {
+      return res.status(404).json({ error: "PHOTO_NOT_FOUND", message: "Không tìm thấy ảnh" });
+    }
+
+    const { posXPct, posYPct, pathPct, noteText } = validateAnnotationInput(req.body);
+
+    const clientAccount = await clientModel.findOrCreateClientAccount({
+      name: req.client.clientName,
+      phone: req.client.clientPhone,
+    });
+    const client = await clientModel.findOrCreateClient({
+      albumId,
+      clientAccountId: clientAccount.id,
+    });
+
+    const annotation = await annotationModel.createAnnotation({
+      photoId,
+      clientId: client.id,
+      posXPct,
+      posYPct,
+      pathPct,
+      noteText,
+    });
+
+    res.status(201).json({ annotation });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function listAnnotationsForPhoto(req, res, next) {
+  try {
+    const { albumId, photoId } = req.params;
+    if (req.client.albumId !== albumId) {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Phiên không thuộc album này" });
+    }
+
+    const album = await albumModel.findPublicById(albumId);
+    if (!album || album.status !== "active") {
+      return res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
+    }
+
+    const photo = await photoModel.findByAlbumAndId(albumId, photoId);
+    if (!photo) {
+      return res.status(404).json({ error: "PHOTO_NOT_FOUND", message: "Không tìm thấy ảnh" });
+    }
+
+    // Chỉ đọc, không tạo client_accounts/clients — khách chưa từng bấm tim/ghi chú thì
+    // chắc chắn chưa có ghi chú nào, trả mảng rỗng ngay mà không đụng tới DB ghi.
+    const clientAccount = await clientModel.findClientAccountByPhone(req.client.clientPhone);
+    const client = clientAccount
+      ? await clientModel.findClient({ albumId, clientAccountId: clientAccount.id })
+      : null;
+
+    const annotations = client
+      ? await annotationModel.listByPhotoAndClient(photoId, client.id)
+      : [];
+    res.json({ annotations });
+  } catch (error) {
+    next(error);
+  }
+}
+
 function logout(req, res) {
   res.clearCookie("client_session_token");
   res.json({ message: "Đã đăng xuất khỏi album" });
 }
 
-module.exports = { verifyPin, getAlbum, logout, listPhotos, viewPhoto, toggleSelection };
+module.exports = {
+  verifyPin,
+  getAlbum,
+  logout,
+  listPhotos,
+  viewPhoto,
+  toggleSelection,
+  createAnnotation,
+  listAnnotationsForPhoto,
+};

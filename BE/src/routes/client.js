@@ -1,6 +1,7 @@
 const express = require("express");
 const clientController = require("../controllers/clientController");
 const { requireClientAuth } = require("../middlewares/clientAuthMiddleware");
+const { enforceAlbumNotExpired } = require("../middlewares/albumDeadlineMiddleware");
 
 const router = express.Router();
 
@@ -120,14 +121,75 @@ router.get("/:albumId/photos/:photoId/view", requireClientAuth, clientController
  *       401:
  *         description: Client chưa xác thực
  *       403:
- *         description: Phiên không thuộc album
+ *         description: Phiên không thuộc album, hoặc đã hết hạn/bị khóa (Bước 2.1)
  *       404:
  *         description: Không tìm thấy ảnh hoặc album
  */
 router.post(
   "/:albumId/photos/:photoId/select",
   requireClientAuth,
+  enforceAlbumNotExpired,
   clientController.toggleSelection
+);
+
+/**
+ * @swagger
+ * /api/public/albums/{albumId}/photos/{photoId}/annotations:
+ *   post:
+ *     summary: Khách vẽ ghi chú khoanh vùng lên 1 ảnh (Bước 2.2)
+ *     tags: [Client Portal]
+ *     security:
+ *       - clientCookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *       - in: path
+ *         name: photoId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       201:
+ *         description: Ghi chú đã tạo
+ *       400:
+ *         description: Dữ liệu ghi chú không hợp lệ
+ *       401:
+ *         description: Client chưa xác thực
+ *       403:
+ *         description: Phiên không thuộc album, hoặc đã hết hạn/bị khóa
+ *       404:
+ *         description: Không tìm thấy ảnh hoặc album
+ *   get:
+ *     summary: Liệt kê ghi chú của chính khách đang đăng nhập trên 1 ảnh
+ *     tags: [Client Portal]
+ *     security:
+ *       - clientCookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *       - in: path
+ *         name: photoId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Danh sách ghi chú của khách trên ảnh này
+ *       401:
+ *         description: Client chưa xác thực
+ *       403:
+ *         description: Phiên không thuộc album
+ *       404:
+ *         description: Không tìm thấy ảnh hoặc album
+ */
+router.post(
+  "/:albumId/photos/:photoId/annotations",
+  requireClientAuth,
+  enforceAlbumNotExpired,
+  clientController.createAnnotation
+);
+router.get(
+  "/:albumId/photos/:photoId/annotations",
+  requireClientAuth,
+  clientController.listAnnotationsForPhoto
 );
 
 /**

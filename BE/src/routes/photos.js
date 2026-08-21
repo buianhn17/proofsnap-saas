@@ -63,4 +63,29 @@ router
   .get(requireAuth, photoController.list)
   .post(requireAuth, upload.single("file"), photoController.upload);
 
+/**
+ * @swagger
+ * /api/albums/{albumId}/photos/{photoId}/view:
+ *   get:
+ *     summary: Xem ảnh gốc (không watermark) đã upload — dùng bởi Admin Portal
+ *     tags: [Photos]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *       - in: path
+ *         name: photoId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Dữ liệu ảnh JPEG
+ *       401:
+ *         description: Chưa đăng nhập
+ *       404:
+ *         description: Không tìm thấy ảnh hoặc album
+ */
+router.get("/:photoId/view", requireAuth, photoController.view);
+
 module.exports = router;

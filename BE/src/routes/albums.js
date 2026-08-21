@@ -1,6 +1,9 @@
 const express = require("express");
 const albumController = require("../controllers/albumController");
 const selectionController = require("../controllers/selectionController");
+const annotationController = require("../controllers/annotationController");
+const sceneController = require("../controllers/sceneController");
+const burstClusterController = require("../controllers/burstClusterController");
 const { requireAuth } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
@@ -120,5 +123,69 @@ router
  *         description: Không tìm thấy album
  */
 router.get("/:albumId/selections", requireAuth, selectionController.listForAlbum);
+
+/**
+ * @swagger
+ * /api/albums/{albumId}/annotations:
+ *   get:
+ *     summary: Xem toàn bộ ghi chú khoanh vùng của khách trong album (Bước 2.2)
+ *     tags: [Albums]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *     responses:
+ *       200:
+ *         description: Danh sách ghi chú (kèm tên/SĐT khách, vị trí, nét vẽ)
+ *       401:
+ *         description: Chưa đăng nhập
+ *       404:
+ *         description: Không tìm thấy album
+ */
+router.get("/:albumId/annotations", requireAuth, annotationController.listForAlbum);
+
+/**
+ * @swagger
+ * /api/albums/{albumId}/scenes:
+ *   post:
+ *     summary: Tạo hàng loạt scene (buổi chụp) cho album — dùng bởi luồng upload sau AI Culling
+ *     tags: [Albums]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *     responses:
+ *       201:
+ *         description: Danh sách scene đã tạo (đúng thứ tự gửi lên)
+ *       400:
+ *         description: Dữ liệu scene không hợp lệ
+ *       401:
+ *         description: Chưa đăng nhập
+ *       404:
+ *         description: Không tìm thấy album
+ */
+router.post("/:albumId/scenes", requireAuth, sceneController.create);
+
+/**
+ * @swagger
+ * /api/albums/{albumId}/burst-clusters:
+ *   post:
+ *     summary: Tạo hàng loạt burst cluster cho album — dùng bởi luồng upload sau AI Culling
+ *     tags: [Albums]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *     responses:
+ *       201:
+ *         description: Danh sách burst cluster đã tạo (đúng thứ tự gửi lên)
+ *       400:
+ *         description: Dữ liệu burst cluster không hợp lệ
+ *       401:
+ *         description: Chưa đăng nhập
+ *       404:
+ *         description: Không tìm thấy album
+ */
+router.post("/:albumId/burst-clusters", requireAuth, burstClusterController.create);
 
 module.exports = router;

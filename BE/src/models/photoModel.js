@@ -33,12 +33,16 @@ async function createPhoto({
   sharpnessScore,
   eyeStatus,
   cullingFlag,
+  sceneId,
+  burstClusterId,
+  isBestInCluster,
 }) {
   const result = await pool.query(
     `INSERT INTO photos (
       album_id, drive_file_id, original_base_filename, width, height,
-      file_size_bytes, captured_at, sharpness_score, eye_status, culling_flag
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      file_size_bytes, captured_at, sharpness_score, eye_status, culling_flag,
+      scene_id, burst_cluster_id, is_best_in_cluster
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     RETURNING ${PHOTO_COLUMNS}`,
     [
       albumId,
@@ -51,6 +55,9 @@ async function createPhoto({
       sharpnessScore,
       eyeStatus,
       cullingFlag,
+      sceneId ?? null,
+      burstClusterId ?? null,
+      isBestInCluster ?? false,
     ]
   );
   return result.rows[0];

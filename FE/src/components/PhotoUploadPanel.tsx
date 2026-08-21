@@ -13,13 +13,25 @@ interface UploadItem {
   error?: string;
 }
 
+// Bước 2.3 (nền) — mở rộng từ File[] thuần sang mang theo scene_id/burst_cluster_id/
+// is_best_in_cluster (map từ id tạm client-side sang UUID thật đã tạo qua POST
+// /albums/:albumId/scenes và /burst-clusters trước khi tới đây — xem
+// AlbumCullPage.tsx#handleContinueToUpload). Chọn file thủ công qua input vẫn hoạt động,
+// chỉ là không có scene/burst nào đi kèm.
+export interface UploadQueueItem {
+  file: File;
+  sceneId?: string;
+  burstClusterId?: string;
+  isBestInCluster?: boolean;
+}
+
 interface PhotoUploadPanelProps {
   albumId: string;
   preset: CompressionPreset;
   onUploaded: (photo: Photo, thumbnailUrl: string) => void;
   /** Bước 1.6 — danh sách ảnh "giữ" từ trang duyệt culling, tự động đưa vào hàng đợi
    * upload ngay khi panel này mount (ví dụ sau khi điều hướng từ AlbumCullPage về). */
-  initialFiles?: File[];
+  initialItems?: UploadQueueItem[];
 }
 
 async function compressForPreset(file: File, preset: CompressionPreset) {
@@ -35,18 +47,18 @@ export default function PhotoUploadPanel({
   albumId,
   preset,
   onUploaded,
-  initialFiles,
+  initialItems,
 }: PhotoUploadPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<UploadItem[]>([]);
-  const consumedInitialFiles = useRef(false);
+  const consumedInitialItems = useRef(false);
 
   useEffect(() => {
-    if (consumedInitialFiles.current) return;
-    if (!initialFiles || initialFiles.length === 0) return;
-    consumedInitialFiles.current = true;
-    initialFiles.forEach((file) => uploadOne(file));
-  }, [initialFiles]);
+    if (consumedInitialItems.current) return;
+    if (!initialItems || initialItems.length === 0) return;
+    consumedInitialItems.current = true;
+    initialItems.forEach((item) => uploadOne(item));
+  }, [initialItems]);
 
   function updateItem(id: string, patch: Partial<UploadItem>) {
     setItems((prev) =>
@@ -54,7 +66,7 @@ export default function PhotoUploadPanel({
     );
   }
 
-  async function uploadOne(file: File) {
+  async function uploadOne({ file, sceneId, burstClusterId, isBestInCluster }: UploadQueueItem) {
     const id = crypto.randomUUID();
     setItems((prev) => [
       ...prev,
@@ -68,6 +80,9 @@ export default function PhotoUploadPanel({
 
       const formData = new FormData();
       formData.append("file", compressed, file.name);
+      if (sceneId) formData.append("scene_id", sceneId);
+      if (burstClusterId) formData.append("burst_cluster_id", burstClusterId);
+      if (isBestInCluster) formData.append("is_best_in_cluster", "true");
 
       const { data } = await api.post<{ photo: Photo }>(
         `/api/albums/${albumId}/photos`,
@@ -95,7 +110,7 @@ export default function PhotoUploadPanel({
 
   function handleFilesSelected(fileList: FileList | null) {
     if (!fileList) return;
-    Array.from(fileList).forEach((file) => uploadOne(file));
+    Array.from(fileList).forEach((file) => uploadOne({ file }));
     if (inputRef.current) inputRef.current.value = "";
   }
 

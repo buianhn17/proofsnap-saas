@@ -7,14 +7,29 @@ import LoginPage from "./pages/admin/LoginPage";
 import AlbumsPage from "./pages/admin/AlbumsPage";
 import CreateAlbumPage from "./pages/admin/CreateAlbumPage";
 import AlbumDetailPage from "./pages/admin/AlbumDetailPage";
+import AlbumAnnotationsPage from "./pages/admin/AlbumAnnotationsPage";
 import AlbumAccessPage from "./pages/client/AlbumAccessPage";
 import AlbumGalleryPage from "./pages/client/AlbumGalleryPage";
+import { ClientAlbumProvider } from "./contexts/ClientAlbumContext";
+import DeadlineCountdownBar from "./components/DeadlineCountdownBar";
 
 function AdminAuthScope() {
   return (
     <AuthProvider>
       <Outlet />
     </AuthProvider>
+  );
+}
+
+// Bước 2.1 — mọi trang Client Portal SAU khi đã qua PIN (gallery, và về sau: lightbox ghi
+// chú, so sánh ảnh...) đều cần album + đếm ngược hạn chọn ảnh. Trang nhập PIN (index route)
+// đứng NGOÀI scope này vì chưa có phiên client để gọi GET album.
+function ClientAlbumScope() {
+  return (
+    <ClientAlbumProvider>
+      <DeadlineCountdownBar />
+      <Outlet />
+    </ClientAlbumProvider>
   );
 }
 
@@ -44,6 +59,7 @@ export const router = createBrowserRouter([
               { path: "albums", element: <AlbumsPage /> },
               { path: "albums/new", element: <CreateAlbumPage /> },
               { path: "albums/:albumId", element: <AlbumDetailPage /> },
+              { path: "albums/:albumId/annotations", element: <AlbumAnnotationsPage /> },
               // Bước 1.6 — bước duyệt/lọc ảnh (culling) tiền-upload. Lazy-load vì kéo theo
               // @mediapipe/tasks-vision qua culling worker, không nên tính vào bundle chính.
               {
@@ -63,7 +79,10 @@ export const router = createBrowserRouter([
     element: <ClientLayout />,
     children: [
       { index: true, element: <AlbumAccessPage /> },
-      { path: "gallery", element: <AlbumGalleryPage /> },
+      {
+        element: <ClientAlbumScope />,
+        children: [{ path: "gallery", element: <AlbumGalleryPage /> }],
+      },
     ],
   },
 ]);
