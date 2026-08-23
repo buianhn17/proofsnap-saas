@@ -3,7 +3,16 @@ const albumModel = require("../models/albumModel");
 const photoModel = require("../models/photoModel");
 const sceneModel = require("../models/sceneModel");
 const burstClusterModel = require("../models/burstClusterModel");
-const { uploadJpeg, deleteFile, downloadFileStream } = require("../services/googleDriveService");
+const redis = require("../config/redis");
+const { resolveSizePreset, resizeToLongEdge } = require("../services/thumbnailService");
+const {
+  uploadJpeg,
+  deleteFile,
+  downloadFileStream,
+  downloadFileBuffer,
+} = require("../services/googleDriveService");
+
+const ADMIN_THUMBNAIL_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 function badRequest(message, code = "INVALID_PHOTO") {
   const error = new Error(message);
@@ -169,10 +178,31 @@ async function view(req, res, next) {
       return res.status(404).json({ error: "PHOTO_NOT_FOUND", message: "Không tìm thấy ảnh" });
     }
 
-    const stream = await downloadFileStream(req.photographer.photographerId, photo.drive_file_id);
+    // Bước hiệu năng — cùng cơ chế ?size= như Client Portal (thumbnailService.js), cache
+    // trong Redis vì ảnh gốc không đổi sau upload nên TTL để dài hơn cache watermark.
+    const sizePreset = resolveSizePreset(req.query.size);
+    if (!sizePreset) {
+      const stream = await downloadFileStream(req.photographer.photographerId, photo.drive_file_id);
+      res.setHeader("Content-Type", "image/jpeg");
+      stream.on("error", (err) => next(err));
+      stream.pipe(res);
+      return;
+    }
+
+    const cacheKey = `admin-thumb:${photo.id}:${req.query.size}`;
+    const cached = await redis.get(cacheKey).catch(() => null);
+    if (cached) {
+      res.setHeader("Content-Type", "image/jpeg");
+      return res.send(Buffer.from(cached, "base64"));
+    }
+
+    const original = await downloadFileBuffer(req.photographer.photographerId, photo.drive_file_id);
+    const resized = await resizeToLongEdge(original, sizePreset.maxEdgePx, sizePreset.quality);
+    redis
+      .set(cacheKey, resized.toString("base64"), "EX", ADMIN_THUMBNAIL_CACHE_TTL_SECONDS)
+      .catch((err) => console.error("Lỗi ghi cache thumbnail admin:", err.message));
     res.setHeader("Content-Type", "image/jpeg");
-    stream.on("error", (err) => next(err));
-    stream.pipe(res);
+    res.send(resized);
   } catch (error) {
     next(error);
   }

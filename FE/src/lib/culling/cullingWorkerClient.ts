@@ -65,6 +65,8 @@ export function runCullingTestInWorker(
             metrics: message.result.metrics,
             timingsMs: message.result.timingsMs,
             sceneSignals: message.result.sceneSignals,
+            thumbnailBlob: message.result.thumbnailBlob,
+            previewBlob: message.result.previewBlob,
             error: message.result.error,
           };
           items[message.result.index] = item;

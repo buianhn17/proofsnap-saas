@@ -20,6 +20,8 @@ export interface WorkerItemResult {
   metrics: CullingMetrics;
   timingsMs: CullingTimingsMs;
   sceneSignals: SceneSignals;
+  thumbnailBlob: Blob;
+  previewBlob: Blob;
   error?: string;
 }
 

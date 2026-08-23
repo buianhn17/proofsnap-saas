@@ -78,6 +78,11 @@ async function createFaceLandmarker(
     runningMode: "IMAGE",
     // Bước 1.8 — nâng lên 20 để không bỏ sót mặt trong ảnh nhóm đông người (Close-up Panel).
     numFaces: 20,
+    // Bước hiệu năng — hạ từ mặc định 0.5 xuống 0.3 để bắt thêm mặt nhỏ/ở biên khung hình
+    // (ảnh nhóm đông người, người đứng xa máy ảnh) — đánh đổi lấy khả năng dương tính giả
+    // cao hơn một chút, chấp nhận được vì đây là gợi ý duyệt, không phải quyết định cuối.
+    minFaceDetectionConfidence: 0.3,
+    minFacePresenceConfidence: 0.3,
     outputFaceBlendshapes: false,
     outputFacialTransformationMatrixes: false,
   });

@@ -30,6 +30,8 @@ export interface CullingTestItem {
   metrics: CullingMetrics;
   timingsMs: CullingTimingsMs;
   sceneSignals: SceneSignals;
+  thumbnailBlob: Blob;
+  previewBlob: Blob;
   error?: string;
 }
 
@@ -62,6 +64,9 @@ export interface CullingPipelineOptions {
   /** Bước 1.4 — tầng tăng tốc cho bước phát hiện mắt: "gpu" (delegate WebGL) hay
    * "wasm" (delegate CPU, đa luồng nếu trang cross-origin isolated). Mặc định "gpu". */
   accelerationTier?: AccelerationTier;
+  /** Cạnh dài mục tiêu cho bản preview dùng khi xem full-screen trong màn hình duyệt —
+   * đủ nét để xem, nhẹ hơn nhiều so với file gốc (thường 20-40MB, full-frame). */
+  previewMaxEdgePx?: number;
 }
 
 /** Vẽ lại một ImageBitmap đã decode vào canvas kích thước nhỏ hơn (giữ tỉ lệ khung). */
@@ -89,6 +94,12 @@ export interface ProcessedImage {
   metrics: CullingMetrics;
   timingsMs: CullingTimingsMs;
   sceneSignals: SceneSignals;
+  /** Bước hiệu năng — bản JPEG nhỏ (~900px cạnh dài, tái dùng canvas đã resize cho bước
+   * độ nét) dùng làm thumbnail lưới ảnh, thay vì decode cả file gốc cho mỗi ô lưới. */
+  thumbnailBlob: Blob;
+  /** Bản JPEG vừa (mặc định ~2000px cạnh dài) dùng khi xem full-screen — đủ nét để đánh
+   * giá bố cục/độ nét bằng mắt, nhẹ hơn nhiều so với file gốc nên chuyển ảnh mượt hơn. */
+  previewBlob: Blob;
 }
 
 /** Xử lý 1 ảnh JPG (đã có File) qua cả 3 kỹ thuật. Ném lỗi nếu decode/xử lý thất bại —
@@ -99,7 +110,12 @@ export async function processOneImage(
   landmarker: FaceLandmarker
 ): Promise<ProcessedImage> {
   const maxEdgePx = options.maxEdgePx ?? 900;
-  const eyeMaxEdgePx = options.eyeMaxEdgePx ?? 1600;
+  const previewMaxEdgePx = options.previewMaxEdgePx ?? 2000;
+  // Bước hiệu năng — mặc định bằng previewMaxEdgePx (trước là 1600, thấp hơn hẳn bản
+  // preview 2000px) vì mặt nhỏ/xa máy ảnh trong ảnh nhóm đông người cần nhiều pixel hơn để
+  // detector nhận ra. Khi trùng previewMaxEdgePx, dùng lại thẳng canvas đã vẽ cho preview
+  // thay vì vẽ thêm 1 canvas riêng (xem bên dưới) — vừa tăng độ phân giải, vừa đỡ tốn hơn.
+  const eyeMaxEdgePx = options.eyeMaxEdgePx ?? previewMaxEdgePx;
   const itemStart = performance.now();
 
   const decodeStart = performance.now();
@@ -123,8 +139,24 @@ export async function processOneImage(
   const hash = computeDHash(canvas, width, height);
   const hashMs = performance.now() - hashStart;
 
+  // Bước hiệu năng — tái dùng canvas 900px đã resize cho bước độ nét làm thumbnail lưới
+  // ảnh, và vẽ thêm 1 canvas cỡ vừa cho bản preview full-screen, thay vì UI phải decode
+  // file gốc (thường 20-40MB) cho mỗi ô lưới/mỗi lần chuyển ảnh.
+  const thumbnailBlobPromise = canvas.convertToBlob({
+    type: "image/jpeg",
+    quality: 0.72,
+  });
+  const previewScaled = scaledCanvas(full, previewMaxEdgePx);
+  const previewBlobPromise = previewScaled.canvas.convertToBlob({
+    type: "image/jpeg",
+    quality: 0.85,
+  });
+
   const eyeStart = performance.now();
-  const eyeScaled = scaledCanvas(full, eyeMaxEdgePx);
+  const eyeScaled =
+    eyeMaxEdgePx === previewMaxEdgePx
+      ? previewScaled
+      : scaledCanvas(full, eyeMaxEdgePx);
   const { faceCount, earValue, faces } = await detectEyeStatus(
     landmarker,
     eyeScaled.canvas,
@@ -134,6 +166,11 @@ export async function processOneImage(
   );
   const eyeMs = performance.now() - eyeStart;
   full.close();
+
+  const [thumbnailBlob, previewBlob] = await Promise.all([
+    thumbnailBlobPromise,
+    previewBlobPromise,
+  ]);
 
   const totalMs = performance.now() - itemStart;
 
@@ -159,5 +196,7 @@ export async function processOneImage(
       capturedAtMs,
       histogram,
     },
+    thumbnailBlob,
+    previewBlob,
   };
 }

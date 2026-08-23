@@ -30,6 +30,11 @@ const DEFAULT_OPTIONS: Required<SceneGroupingOptions> = {
   burstMaxHammingDistance: 6,
 };
 
+// Bước cải tiến — số ảnh gần nhất TRONG burst hiện tại dùng để so hash, thay vì chỉ so với
+// đúng 1 ảnh liền trước. Giúp 1 khung mờ/chuyển tiếp ở giữa 1 loạt burst dài không làm tách
+// nhầm burst thành 2, miễn là ảnh hiện tại vẫn đủ giống ít nhất 1 trong vài ảnh gần đây.
+const BURST_WINDOW_SIZE = 3;
+
 export interface SceneGroupingResult {
   /** id theo đúng thứ tự thời gian đã sắp xếp lại — tầng gọi dùng để hiển thị/lặp đúng thứ tự. */
   order: string[];
@@ -51,6 +56,8 @@ export function groupScenesAndBursts(
 
   let currentScene = 0;
   let currentBurst = 0;
+  // Hash của các ảnh đã thuộc burst hiện tại, tối đa BURST_WINDOW_SIZE ảnh gần nhất.
+  let burstWindow: string[] = [];
 
   sorted.forEach((item, index) => {
     order.push(item.id);
@@ -65,10 +72,20 @@ export function groupScenesAndBursts(
         // buổi trước với ảnh đầu buổi sau dù hash tình cờ gần nhau.
         currentScene += 1;
         currentBurst += 1;
-      } else if (hammingDistance(item.hash, prev.hash) > opts.burstMaxHammingDistance) {
-        currentBurst += 1;
+        burstWindow = [];
+      } else {
+        const minDist = Math.min(
+          ...burstWindow.map((hash) => hammingDistance(item.hash, hash))
+        );
+        if (minDist > opts.burstMaxHammingDistance) {
+          currentBurst += 1;
+          burstWindow = [];
+        }
       }
     }
+
+    burstWindow.push(item.hash);
+    if (burstWindow.length > BURST_WINDOW_SIZE) burstWindow.shift();
 
     sceneId.set(item.id, currentScene);
     burstId.set(item.id, currentBurst);

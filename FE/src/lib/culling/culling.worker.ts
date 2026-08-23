@@ -76,6 +76,8 @@ async function runPipeline(
           },
           timingsMs: { decode: 0, sharpness: 0, hash: 0, eye: 0, total: 0 },
           sceneSignals: { capturedAtMs: null, histogram: [] },
+          thumbnailBlob: new Blob([], { type: "image/jpeg" }),
+          previewBlob: new Blob([], { type: "image/jpeg" }),
           error: err instanceof Error ? err.message : "Lỗi không xác định",
         },
       });

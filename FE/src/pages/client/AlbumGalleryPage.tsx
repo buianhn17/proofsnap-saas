@@ -16,6 +16,9 @@ interface PublicPhoto {
   // Bước 2.3 (nền) — null nếu ảnh không thuộc cụm burst nào (culling không gom được, hoặc
   // upload thủ công không qua AI Culling).
   burst_cluster_id: string | null;
+  // true nếu đây là ảnh AI chọn làm đại diện tốt nhất trong cụm burst_cluster_id — chỉ có ý
+  // nghĩa khi burst_cluster_id khác null.
+  is_best_in_cluster: boolean;
 }
 
 const GRID_GAP_PX = 12;
@@ -200,18 +203,24 @@ export default function AlbumGalleryPage() {
                       className="block w-full"
                     >
                       <img
-                        src={`${import.meta.env.VITE_API_BASE_URL}/api/public/albums/${albumId}/photos/${photo.id}/view`}
+                        src={`${import.meta.env.VITE_API_BASE_URL}/api/public/albums/${albumId}/photos/${photo.id}/view?size=thumb`}
                         alt={photo.original_base_filename}
                         loading="lazy"
+                        decoding="async"
                         className="aspect-square w-full object-cover"
                       />
                     </button>
 
-                    {photo.burst_cluster_id && (
-                      <span className="absolute left-2 top-2 rounded bg-slate-900/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                        Cụm ảnh giống
-                      </span>
-                    )}
+                    {photo.burst_cluster_id &&
+                      (photo.is_best_in_cluster ? (
+                        <span className="absolute left-2 top-2 rounded bg-amber-500/90 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                          ✨ Gợi ý
+                        </span>
+                      ) : (
+                        <span className="absolute left-2 top-2 rounded bg-slate-900/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                          Cụm ảnh giống
+                        </span>
+                      ))}
 
                     {compareMode ? (
                       <span

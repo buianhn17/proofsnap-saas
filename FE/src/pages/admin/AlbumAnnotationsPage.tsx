@@ -102,8 +102,10 @@ export default function AlbumAnnotationsPage() {
                 <div className="mt-2 flex flex-col gap-4 sm:flex-row">
                   <div className="relative inline-block w-full max-w-xs shrink-0 overflow-hidden rounded-md border border-slate-200">
                     <img
-                      src={`${import.meta.env.VITE_API_BASE_URL}/api/albums/${albumId}/photos/${photo.id}/view`}
+                      src={`${import.meta.env.VITE_API_BASE_URL}/api/albums/${albumId}/photos/${photo.id}/view?size=preview`}
                       alt={photo.original_base_filename}
+                      loading="lazy"
+                      decoding="async"
                       className="block w-full object-contain"
                     />
                     <svg

@@ -7,6 +7,7 @@ const clientModel = require("../models/clientModel");
 const annotationModel = require("../models/annotationModel");
 const redis = require("../config/redis");
 const { applyWatermark } = require("../services/watermarkService");
+const { resolveSizePreset, resizeToLongEdge } = require("../services/thumbnailService");
 const { downloadFileStream, downloadFileBuffer } = require("../services/googleDriveService");
 
 const WATERMARK_CACHE_TTL_SECONDS = 60 * 60 * 24;
@@ -42,9 +43,9 @@ function setClientCookie(res, token) {
   });
 }
 
-function watermarkCacheKey(photoId, name, phone) {
+function watermarkCacheKey(photoId, name, phone, size) {
   const identity = crypto.createHash("sha256").update(`${name}|${phone}`).digest("hex");
-  return `watermark:${photoId}:${identity}`;
+  return size ? `watermark:${photoId}:${size}:${identity}` : `watermark:${photoId}:${identity}`;
 }
 
 async function verifyPin(req, res, next) {
@@ -118,14 +119,25 @@ async function listPhotos(req, res, next) {
     // eye_status, culling_flag...) cho client - đó là dữ liệu làm việc của PTG.
     // burst_cluster_id thì trả ra (Bước 2.3) để FE gom nhóm/gợi ý ảnh giống nhau cho công cụ
     // so sánh song song — không lộ thông tin nội bộ, chỉ là 1 id để nhóm ảnh trong gallery.
+    // is_best_in_cluster cũng trả ra để FE gợi ý sẵn ảnh AI chọn là đại diện tốt nhất trong
+    // 1 cụm ảnh giống nhau — không lộ thêm dữ liệu chấm điểm nội bộ nào khác.
     const publicPhotos = photos.map(
-      ({ id, original_base_filename, width, height, created_at, burst_cluster_id }) => ({
+      ({
         id,
         original_base_filename,
         width,
         height,
         created_at,
         burst_cluster_id,
+        is_best_in_cluster,
+      }) => ({
+        id,
+        original_base_filename,
+        width,
+        height,
+        created_at,
+        burst_cluster_id,
+        is_best_in_cluster,
       })
     );
     res.json({ photos: publicPhotos });
@@ -151,22 +163,54 @@ async function viewPhoto(req, res, next) {
       return res.status(404).json({ error: "PHOTO_NOT_FOUND", message: "Không tìm thấy ảnh" });
     }
 
+    // Bước hiệu năng — ?size=thumb|preview trả bản resize nhẹ (cache theo đúng pattern
+    // watermark bên dưới) thay vì luôn tải ảnh gốc full-size, giúp lưới ảnh/lightbox của
+    // Client Portal mượt hơn với album nhiều ảnh. Không truyền size => giữ hành vi cũ.
+    const sizePreset = resolveSizePreset(req.query.size);
+
     if (!album.watermark_enabled) {
-      const stream = await downloadFileStream(album.photographer_id, photo.drive_file_id);
+      if (!sizePreset) {
+        const stream = await downloadFileStream(album.photographer_id, photo.drive_file_id);
+        res.setHeader("Content-Type", "image/jpeg");
+        stream.on("error", (err) => next(err));
+        stream.pipe(res);
+        return;
+      }
+
+      const cacheKey = `photo:${photoId}:${req.query.size}`;
+      const cached = await redis.get(cacheKey).catch(() => null);
+      if (cached) {
+        res.setHeader("Content-Type", "image/jpeg");
+        return res.send(Buffer.from(cached, "base64"));
+      }
+
+      const original = await downloadFileBuffer(album.photographer_id, photo.drive_file_id);
+      const resized = await resizeToLongEdge(original, sizePreset.maxEdgePx, sizePreset.quality);
+      redis
+        .set(cacheKey, resized.toString("base64"), "EX", WATERMARK_CACHE_TTL_SECONDS)
+        .catch((err) => console.error("Lỗi ghi cache thumbnail:", err.message));
       res.setHeader("Content-Type", "image/jpeg");
-      stream.on("error", (err) => next(err));
-      stream.pipe(res);
-      return;
+      return res.send(resized);
     }
 
-    const cacheKey = watermarkCacheKey(photoId, req.client.clientName, req.client.clientPhone);
+    const cacheKey = watermarkCacheKey(
+      photoId,
+      req.client.clientName,
+      req.client.clientPhone,
+      req.query.size
+    );
     const cached = await redis.get(cacheKey).catch(() => null);
     if (cached) {
       res.setHeader("Content-Type", "image/jpeg");
       return res.send(Buffer.from(cached, "base64"));
     }
 
-    const original = await downloadFileBuffer(album.photographer_id, photo.drive_file_id);
+    let original = await downloadFileBuffer(album.photographer_id, photo.drive_file_id);
+    if (sizePreset) {
+      // Resize trước rồi mới watermark — nhẹ hơn (composite SVG lên ảnh nhỏ hơn) và tile
+      // watermark vẫn đọc được ở kích thước thumbnail/preview.
+      original = await resizeToLongEdge(original, sizePreset.maxEdgePx, sizePreset.quality);
+    }
     const watermarked = await applyWatermark(
       original,
       `${req.client.clientName} • ${req.client.clientPhone}`

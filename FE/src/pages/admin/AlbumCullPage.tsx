@@ -3,8 +3,19 @@
 // 1.3-1.5, chạy trong Web Worker để không chặn UI), hiển thị lưới ảnh có nhãn xanh/vàng/đỏ,
 // PTG duyệt nhanh bằng phím tắt để chọn giữ/loại, rồi đưa danh sách "giữ" sang upload thật.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type SyntheticEvent as ReactSyntheticEvent,
+  type WheelEvent as ReactWheelEvent,
+} from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { api } from "../../lib/api";
 import {
   FILE_SYSTEM_ACCESS_UNSUPPORTED_MESSAGE,
@@ -31,7 +42,11 @@ import type { UploadQueueItem } from "../../components/PhotoUploadPanel";
 import type { Album } from "../../lib/types";
 import type { EyeStatus } from "../../lib/culling/types";
 
-type Decision = "keep" | "reject" | "undecided";
+// Bước rate màu — quyết định của PTG giờ CHÍNH LÀ 1 trong 3 màu (trùng với CullingFlag của
+// AI), không còn tách riêng "chưa quyết" nữa: mỗi ảnh luôn có 1 màu ngay từ lúc phân tích
+// xong (khởi tạo = gợi ý AI), PTG ghi đè bằng phím tắt G/Y/R hoặc bấm nút. Xanh = giữ (sẽ
+// upload), Đỏ = loại, Vàng = cần xem lại (giữ nguyên trên lưới, không tự upload/xoá).
+type Decision = CullingFlag;
 
 // Bước 1.9 — trạng thái của hành động copy/xoá file cục bộ đang chạy (nếu có).
 type LocalActionKind = "copy" | "delete";
@@ -63,6 +78,28 @@ interface SceneGroup {
   endMs: number;
 }
 
+// Bước hiệu năng — đơn vị "hàng" để virtualize lưới ảnh: gom thẻ ảnh/header buổi chụp/khối
+// burst mở rộng thành 1 danh sách phẳng theo view mode hiện tại (xem gridRows bên dưới),
+// chỉ những hàng này mới được mount vào DOM khi nằm trong (hoặc gần) viewport.
+type GridCard =
+  | { kind: "item"; key: string; item: CullingTestItem }
+  | { kind: "burstCollapsed"; key: string; burst: BurstGroup };
+
+type GridRow =
+  | { key: string; kind: "sceneHeader"; scene: SceneGroup }
+  | { key: string; kind: "cards"; cards: GridCard[] }
+  | { key: string; kind: "burstExpanded"; burst: BurstGroup };
+
+const GRID_GAP_PX = 16;
+
+function useGridColumnCount(containerWidth: number): number {
+  if (containerWidth === 0) return 2;
+  if (containerWidth < 640) return 2;
+  if (containerWidth < 768) return 3;
+  if (containerWidth < 1024) return 4;
+  return 6;
+}
+
 function formatTimeRange(startMs: number, endMs: number): string {
   const fmt = (ms: number) =>
     new Date(ms).toLocaleTimeString("vi-VN", {
@@ -78,28 +115,34 @@ const FLAG_LABEL: Record<CullingFlag, string> = {
   red: "Mờ hoặc nhắm mắt",
 };
 
-const FLAG_RING: Record<CullingFlag, string> = {
-  green: "ring-emerald-500",
-  yellow: "ring-amber-500",
-  red: "ring-red-500",
+const FLAG_DOT: Record<CullingFlag, string> = {
+  green: "bg-emerald-500",
+  yellow: "bg-amber-500",
+  red: "bg-red-500",
 };
 
 const FLAG_BADGE: Record<CullingFlag, string> = {
-  green: "bg-emerald-100 text-emerald-700",
-  yellow: "bg-amber-100 text-amber-700",
-  red: "bg-red-100 text-red-700",
+  green: "bg-emerald-500/20 text-emerald-300",
+  yellow: "bg-amber-500/20 text-amber-300",
+  red: "bg-red-500/20 text-red-300",
 };
 
 const DECISION_BADGE: Record<Decision, string> = {
-  keep: "bg-emerald-600 text-white",
-  reject: "bg-red-600 text-white",
-  undecided: "bg-slate-200 text-slate-600",
+  green: "bg-emerald-600 text-white",
+  yellow: "bg-amber-500 text-white",
+  red: "bg-red-600 text-white",
 };
 
 const DECISION_LABEL: Record<Decision, string> = {
-  keep: "Giữ",
-  reject: "Loại",
-  undecided: "?",
+  green: "Giữ",
+  yellow: "Xem lại",
+  red: "Loại",
+};
+
+const DECISION_DOT: Record<Decision, string> = {
+  green: "bg-emerald-500",
+  yellow: "bg-amber-500",
+  red: "bg-red-500",
 };
 
 export default function AlbumCullPage() {
@@ -122,7 +165,11 @@ export default function AlbumCullPage() {
 
   const [items, setItems] = useState<CullingTestItem[]>([]);
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
+  // Bước hiệu năng — 2 bản blob nhẹ hơn nhiều so với file gốc (thường 20-40MB): `thumbnails`
+  // (~900px, cho ô lưới) và `previews` (~2000px, cho màn hình xem full-screen). File gốc chỉ
+  // cần đụng tới khi thật sự upload (Bước 2.3).
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const [previews, setPreviews] = useState<Record<string, string>>({});
   const thumbnailUrlsRef = useRef<string[]>([]);
 
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
@@ -169,16 +216,16 @@ export default function AlbumCullPage() {
 
   function handleItem(item: CullingTestItem) {
     const path = item.file.relativePath;
-    const url = URL.createObjectURL(item.file.file);
-    thumbnailUrlsRef.current.push(url);
-    setThumbnails((prev) => ({ ...prev, [path]: url }));
+    const thumbnailUrl = URL.createObjectURL(item.thumbnailBlob);
+    const previewUrl = URL.createObjectURL(item.previewBlob);
+    thumbnailUrlsRef.current.push(thumbnailUrl, previewUrl);
+    setThumbnails((prev) => ({ ...prev, [path]: thumbnailUrl }));
+    setPreviews((prev) => ({ ...prev, [path]: previewUrl }));
     setItems((prev) => [...prev, item]);
 
+    // Khởi tạo màu rate = đúng gợi ý AI — PTG ghi đè sau bằng phím tắt/nút bấm.
     const flag = classifyCullingFlag(item.metrics);
-    setDecisions((prev) => ({
-      ...prev,
-      [path]: flag === "red" ? "reject" : flag === "green" ? "keep" : "undecided",
-    }));
+    setDecisions((prev) => ({ ...prev, [path]: flag }));
   }
 
   async function handleAnalyze() {
@@ -220,21 +267,15 @@ export default function AlbumCullPage() {
   const counts = useMemo(() => {
     let keep = 0;
     let reject = 0;
-    let undecided = 0;
+    let review = 0;
     for (const item of items) {
-      const d = decisions[item.file.relativePath] ?? "undecided";
-      if (d === "keep") keep += 1;
-      else if (d === "reject") reject += 1;
-      else undecided += 1;
+      const d = decisions[item.file.relativePath] ?? "yellow";
+      if (d === "green") keep += 1;
+      else if (d === "red") reject += 1;
+      else review += 1;
     }
-    return { keep, reject, undecided, total: items.length };
+    return { keep, reject, review, total: items.length };
   }, [items, decisions]);
-
-  const pathToIndex = useMemo(() => {
-    const map = new Map<string, number>();
-    items.forEach((item, index) => map.set(item.file.relativePath, index));
-    return map;
-  }, [items]);
 
   // Bước 1.9 — ghép mỗi ảnh JPG đã duyệt với file RAW cùng cặp (nếu có, theo kết quả ghép
   // cặp ở Bước 1.2) để hành động copy/xoá áp dụng trên cả cặp RAW+JPG, không chỉ riêng JPG.
@@ -252,13 +293,13 @@ export default function AlbumCullPage() {
     const rejected: LocalPhotoActionPair[] = [];
     for (const item of items) {
       const path = item.file.relativePath;
-      const decision = decisions[path] ?? "undecided";
+      const decision = decisions[path] ?? "yellow";
       const pair: LocalPhotoActionPair = {
         jpg: item.file,
         raw: jpgPathToRaw.get(path) ?? null,
       };
-      if (decision === "keep") kept.push(pair);
-      else if (decision === "reject") rejected.push(pair);
+      if (decision === "green") kept.push(pair);
+      else if (decision === "red") rejected.push(pair);
     }
     return { keptPairs: kept, rejectedPairs: rejected };
   }, [items, decisions, jpgPathToRaw]);
@@ -398,6 +439,30 @@ export default function AlbumCullPage() {
     });
   }, [items]);
 
+  // Bug fix — thứ tự ảnh khi duyệt (mở/Trước/Sau trong review) phải khớp với thứ tự ĐANG
+  // HIỂN THỊ trên lưới, không phải thứ tự `items` gốc (thứ tự worker xử lý xong từng ảnh —
+  // có thể khác thứ tự thời gian chụp). Ở chế độ "Theo buổi chụp", lưới hiển thị theo
+  // scene -> burst -> item (đã sắp theo thời gian trong `scenes` ở trên); ở "Lưới phẳng" thì
+  // giữ nguyên thứ tự `items`. Trước đây review dùng thẳng `items`/`pathToIndex` theo thứ tự
+  // gốc nên bấm vào 1 ảnh trong lưới "Theo buổi chụp" rồi bấm Tiếp/Trước sẽ nhảy sang ảnh
+  // không liền kề trên màn hình.
+  const displayOrderItems = useMemo<CullingTestItem[]>(() => {
+    if (viewMode === "flat") return items;
+    const result: CullingTestItem[] = [];
+    for (const scene of scenes) {
+      for (const burst of scene.bursts) {
+        result.push(...burst.items);
+      }
+    }
+    return result;
+  }, [viewMode, items, scenes]);
+
+  const pathToIndex = useMemo(() => {
+    const map = new Map<string, number>();
+    displayOrderItems.forEach((item, index) => map.set(item.file.relativePath, index));
+    return map;
+  }, [displayOrderItems]);
+
   function toggleBurst(burstId: number) {
     setExpandedBursts((prev) => {
       const next = new Set(prev);
@@ -412,7 +477,7 @@ export default function AlbumCullPage() {
       const next = { ...prev };
       for (const item of burst.items) {
         if (item !== burst.representative) {
-          next[item.file.relativePath] = "reject";
+          next[item.file.relativePath] = "red";
         }
       }
       return next;
@@ -422,10 +487,10 @@ export default function AlbumCullPage() {
   const moveTo = useCallback(
     (startIndex: number, direction: 1 | -1) => {
       let idx = startIndex;
-      while (idx >= 0 && idx < items.length) {
-        const path = items[idx].file.relativePath;
-        const decision = decisions[path] ?? "undecided";
-        if (!autoSkipFlagged || decision !== "reject") {
+      while (idx >= 0 && idx < displayOrderItems.length) {
+        const path = displayOrderItems[idx].file.relativePath;
+        const decision = decisions[path] ?? "yellow";
+        if (!autoSkipFlagged || decision !== "red") {
           setReviewIndex(idx);
           return;
         }
@@ -433,12 +498,12 @@ export default function AlbumCullPage() {
       }
       // Không còn ảnh hợp lệ theo hướng này (đã hết hoặc toàn bộ còn lại đều bị loại) — giữ nguyên vị trí.
     },
-    [items, decisions, autoSkipFlagged]
+    [displayOrderItems, decisions, autoSkipFlagged]
   );
 
-  function decideCurrent(decision: "keep" | "reject") {
+  function decideCurrent(decision: Decision) {
     if (reviewIndex === null) return;
-    const path = items[reviewIndex].file.relativePath;
+    const path = displayOrderItems[reviewIndex].file.relativePath;
     setDecisions((prev) => ({ ...prev, [path]: decision }));
     moveTo(reviewIndex + 1, 1);
   }
@@ -466,13 +531,18 @@ export default function AlbumCullPage() {
         case "k":
         case "K":
           e.preventDefault();
-          decideCurrent("keep");
+          decideCurrent("green");
+          break;
+        case "y":
+        case "Y":
+          e.preventDefault();
+          decideCurrent("yellow");
           break;
         case "x":
         case "X":
         case "Backspace":
           e.preventDefault();
-          decideCurrent("reject");
+          decideCurrent("red");
           break;
         case "s":
         case "S":
@@ -481,7 +551,11 @@ export default function AlbumCullPage() {
           break;
         case "Escape":
           e.preventDefault();
-          setReviewIndex(null);
+          if (reviewZoomRef.current) {
+            exitReviewZoom();
+          } else {
+            setReviewIndex(null);
+          }
           break;
       }
     }
@@ -556,7 +630,7 @@ export default function AlbumCullPage() {
     }
 
     const keptUploadItems: UploadQueueItem[] = items
-      .filter((item) => (decisions[item.file.relativePath] ?? "undecided") === "keep")
+      .filter((item) => (decisions[item.file.relativePath] ?? "yellow") === "green")
       .map((item) => {
         const grouping = groupingByPath.get(item.file.relativePath);
         return {
@@ -570,6 +644,114 @@ export default function AlbumCullPage() {
     navigate(`/admin/albums/${albumId}`, { state: { keptUploadItems } });
   }
 
+  // Bước hiệu năng — đo bề rộng vùng lưới để tự tính số cột (thay Tailwind grid-cols-*
+  // breakpoint) và bề rộng mỗi ô, dùng cho cả layout hàng (flex) lẫn ước lượng chiều cao
+  // hàng khi virtualize. Dùng ref dạng callback (thay vì useRef + effect deps rỗng) vì div
+  // này chỉ mount SAU KHI có ảnh đầu tiên (`items.length > 0`) — effect deps rỗng sẽ chạy
+  // ngay lúc component mount, khi div đó còn chưa tồn tại, nên ResizeObserver không bao giờ
+  // được gắn và bề rộng mãi mãi bằng 0 (mọi ô ảnh co về 0px, chỉ còn chấm cờ AI nổi lên).
+  const [gridContainerNode, setGridContainerNode] = useState<HTMLDivElement | null>(null);
+  const [gridContainerWidth, setGridContainerWidth] = useState(0);
+  useEffect(() => {
+    if (!gridContainerNode) return;
+    const observer = new ResizeObserver((entries) => {
+      setGridContainerWidth(entries[0].contentRect.width);
+    });
+    observer.observe(gridContainerNode);
+    return () => observer.disconnect();
+  }, [gridContainerNode]);
+  const columns = useGridColumnCount(gridContainerWidth);
+  const itemSize =
+    gridContainerWidth > 0
+      ? (gridContainerWidth - GRID_GAP_PX * (columns - 1)) / columns
+      : 0;
+  const rowHeight = itemSize > 0 ? itemSize + GRID_GAP_PX : 160;
+
+  // Bước hiệu năng — gom thẻ ảnh thành các hàng cố định `columns` ô/hàng (lưới phẳng), hoặc
+  // xen kẽ header buổi chụp + khối burst mở rộng (theo buổi chụp), để virtualize theo hàng
+  // thay vì mount hết toàn bộ ảnh trong 1 lưới CSS như trước.
+  const gridRows = useMemo<GridRow[]>(() => {
+    if (columns <= 0) return [];
+
+    function chunkCards(cards: GridCard[], keyPrefix: string): GridRow[] {
+      const rows: GridRow[] = [];
+      for (let i = 0; i < cards.length; i += columns) {
+        rows.push({
+          key: `${keyPrefix}-${i}`,
+          kind: "cards",
+          cards: cards.slice(i, i + columns),
+        });
+      }
+      return rows;
+    }
+
+    if (viewMode === "flat") {
+      const cards: GridCard[] = items.map((item) => ({
+        kind: "item",
+        key: item.file.relativePath,
+        item,
+      }));
+      return chunkCards(cards, "flat");
+    }
+
+    const rows: GridRow[] = [];
+    for (const scene of scenes) {
+      rows.push({ key: `scene-${scene.sceneId}`, kind: "sceneHeader", scene });
+      let pending: GridCard[] = [];
+      let flushCount = 0;
+      const flushPending = () => {
+        if (pending.length === 0) return;
+        rows.push(
+          ...chunkCards(pending, `scene-${scene.sceneId}-${flushCount}`)
+        );
+        flushCount += 1;
+        pending = [];
+      };
+      for (const burst of scene.bursts) {
+        if (burst.items.length === 1) {
+          pending.push({
+            kind: "item",
+            key: burst.items[0].file.relativePath,
+            item: burst.items[0],
+          });
+          continue;
+        }
+        if (!expandedBursts.has(burst.burstId)) {
+          pending.push({
+            kind: "burstCollapsed",
+            key: `burst-${burst.burstId}`,
+            burst,
+          });
+          continue;
+        }
+        flushPending();
+        rows.push({
+          key: `burst-expanded-${burst.burstId}`,
+          kind: "burstExpanded",
+          burst,
+        });
+      }
+      flushPending();
+    }
+    return rows;
+  }, [viewMode, items, scenes, expandedBursts, columns]);
+
+  const rowVirtualizer = useWindowVirtualizer({
+    count: gridRows.length,
+    estimateSize: (index) => {
+      const row = gridRows[index];
+      if (!row) return rowHeight;
+      if (row.kind === "sceneHeader") return 44;
+      if (row.kind === "burstExpanded") {
+        return (
+          rowHeight * Math.ceil(row.burst.items.length / columns) + 56
+        );
+      }
+      return rowHeight;
+    },
+    overscan: 3,
+  });
+
   function renderPhotoCard(
     item: CullingTestItem,
     opts: { isRepresentative?: boolean } = {}
@@ -577,63 +759,326 @@ export default function AlbumCullPage() {
     const path = item.file.relativePath;
     const index = pathToIndex.get(path);
     const flag = classifyCullingFlag(item.metrics);
-    const decision = decisions[path] ?? "undecided";
+    const decision = decisions[path] ?? "yellow";
+    // Chỉ hiện chấm gợi ý AI (góc trái) khi PTG đã ghi đè khác với gợi ý ban đầu — tránh lặp
+    // lại cùng 1 màu 2 lần ở đa số ảnh (đa số ảnh chưa đổi thì màu rate = đúng gợi ý AI rồi).
+    const overridden = decision !== flag;
     return (
       <button
-        key={path}
         type="button"
         onClick={() => index !== undefined && setReviewIndex(index)}
-        className={`group relative overflow-hidden rounded-lg ring-2 ${FLAG_RING[flag]}`}
+        className="group relative block w-full overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-800 transition-transform hover:z-10 hover:scale-[1.03] hover:ring-neutral-600"
       >
         {thumbnails[path] && (
           <img
             src={thumbnails[path]}
             alt={path}
             loading="lazy"
+            decoding="async"
             className="aspect-square w-full object-cover"
           />
         )}
+        {overridden && (
+          <span
+            title={`AI gợi ý: ${FLAG_LABEL[flag]}`}
+            className={`absolute left-2 top-2 h-2.5 w-2.5 rounded-full ring-2 ring-black/50 ${FLAG_DOT[flag]}`}
+          />
+        )}
         {opts.isRepresentative && (
-          <span className="absolute left-1 top-1 rounded bg-slate-900/80 px-1.5 py-0.5 text-xs font-medium text-white">
+          <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
             ★ Đại diện
           </span>
         )}
         <span
-          className={`absolute right-1 top-1 rounded px-1.5 py-0.5 text-xs font-medium ${DECISION_BADGE[decision]}`}
+          className={`absolute right-2 top-2 rounded px-1.5 py-0.5 text-[10px] font-medium ${DECISION_BADGE[decision]}`}
         >
           {DECISION_LABEL[decision]}
         </span>
-        <span className="absolute inset-x-0 bottom-0 truncate bg-black/50 px-1.5 py-1 text-left text-xs text-white">
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5 text-left text-[11px] text-neutral-200 opacity-0 transition-opacity group-hover:opacity-100">
           {item.file.file.name}
         </span>
       </button>
     );
   }
 
-  const currentItem = reviewIndex !== null ? items[reviewIndex] : null;
+  function renderGridCard(card: GridCard) {
+    if (card.kind === "item") {
+      return (
+        <div key={card.key} className="shrink-0" style={{ width: itemSize || undefined }}>
+          {renderPhotoCard(card.item)}
+        </div>
+      );
+    }
+    return (
+      <div
+        key={card.key}
+        className="relative shrink-0"
+        style={{ width: itemSize || undefined }}
+      >
+        {renderPhotoCard(card.burst.representative, { isRepresentative: true })}
+        <button
+          type="button"
+          onClick={() => toggleBurst(card.burst.burstId)}
+          className="absolute bottom-9 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-black/90"
+        >
+          +{card.burst.items.length - 1} ảnh giống
+        </button>
+      </div>
+    );
+  }
+
+  const currentItem = reviewIndex !== null ? displayOrderItems[reviewIndex] : null;
+
+  // Bước hiệu năng — chỉ đổi ảnh hiển thị SAU KHI đã decode xong bản preview mới (thay vì
+  // đổi src ngay rồi để trình duyệt decode lúc paint), tránh khựng/giật khi chuyển ảnh
+  // liên tục. Ảnh đang hiện giữ nguyên cho tới khi ảnh mới sẵn sàng, tạo cảm giác chuyển
+  // mượt kiểu crossfade thay vì đổi khựng.
+  const [readyPreviewSrc, setReadyPreviewSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!currentItem) return;
+    const target = previews[currentItem.file.relativePath];
+    if (!target) return;
+    let cancelled = false;
+    const img = new Image();
+    img.src = target;
+    const markReady = () => {
+      if (!cancelled) setReadyPreviewSrc(target);
+    };
+    if (typeof img.decode === "function") {
+      img.decode().then(markReady).catch(markReady);
+    } else {
+      img.onload = markReady;
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [currentItem, previews]);
+
+  // Bước hiệu năng — prefetch + decode trước bản preview của ảnh liền kề (trước/sau) để khi
+  // người dùng bấm phím điều hướng, ảnh gần như đã sẵn sàng trong cache decode của trình
+  // duyệt thay vì phải tải/giải mã lại từ đầu.
+  useEffect(() => {
+    if (reviewIndex === null) return;
+    [reviewIndex - 1, reviewIndex + 1].forEach((idx) => {
+      const neighbor = displayOrderItems[idx];
+      if (!neighbor) return;
+      const src = previews[neighbor.file.relativePath];
+      if (!src) return;
+      const img = new Image();
+      img.src = src;
+      img.decode?.().catch(() => {});
+    });
+  }, [reviewIndex, displayOrderItems, previews]);
+
+  // Zoom kiểu Narrative Select — cuộn chuột/trackpad để phóng to mượt dần quanh đúng vị trí
+  // con trỏ (không giật cấp tới thẳng 1 mức), kéo để pan khi đang zoom, nhấp đúp để nhảy
+  // nhanh tới 100% thật (1 pixel ảnh gốc = 1 pixel màn hình) hoặc thoát zoom. Bản preview
+  // (~2000px) không đủ chi tiết thật để soi nét — chỉ khi zoom mới tải file gốc qua object
+  // URL (rẻ vì là file local, không phải tải mạng), huỷ ngay khi zoom ra/đổi ảnh.
+  const REVIEW_MIN_SCALE = 1;
+  const [reviewZoom, setReviewZoom] = useState<{
+    scale: number;
+    tx: number;
+    ty: number;
+  } | null>(null);
+  const [zoomFullSrc, setZoomFullSrc] = useState<string | null>(null);
+  const zoomFullSrcRef = useRef<string | null>(null);
+  const reviewImageContainerRef = useRef<HTMLDivElement>(null);
+  // Tỉ lệ zoom tương ứng đúng 100% thật (native), chỉ biết được sau khi ảnh gốc load xong.
+  const maxScaleRef = useRef(REVIEW_MIN_SCALE);
+  const pendingZoomAnchorRef = useRef<{
+    rect: DOMRect;
+    clickX: number;
+    clickY: number;
+    targetScale?: number;
+  } | null>(null);
+  const zoomDragRef = useRef<{
+    startX: number;
+    startY: number;
+    originTx: number;
+    originTy: number;
+  } | null>(null);
+  const [isZoomDragging, setIsZoomDragging] = useState(false);
+  const reviewZoomRef = useRef<typeof reviewZoom>(null);
+  useEffect(() => {
+    reviewZoomRef.current = reviewZoom;
+  }, [reviewZoom]);
+
+  const exitReviewZoom = useCallback(() => {
+    setReviewZoom(null);
+    setZoomFullSrc(null);
+    setIsZoomDragging(false);
+    pendingZoomAnchorRef.current = null;
+    zoomDragRef.current = null;
+    maxScaleRef.current = REVIEW_MIN_SCALE;
+    if (zoomFullSrcRef.current) {
+      URL.revokeObjectURL(zoomFullSrcRef.current);
+      zoomFullSrcRef.current = null;
+    }
+  }, []);
+
+  // Đổi ảnh đang xem thì luôn thoát zoom — mỗi ảnh mới bắt đầu ở chế độ fit như cũ.
+  useEffect(() => {
+    exitReviewZoom();
+  }, [currentItem, exitReviewZoom]);
+
+  // Bắt đầu tải bản gốc + ghi lại điểm neo (vị trí con trỏ) để zoom quanh đúng điểm đó
+  // ngay khi ảnh gốc load xong (handleZoomImageLoaded). targetScale bỏ trống = zoom tới
+  // 100% thật (nhấp đúp); có giá trị = mức zoom vừa phải hơn (bắt đầu cuộn chuột để zoom).
+  function beginZoom(clientX: number, clientY: number, targetScale?: number) {
+    if (!currentItem || pendingZoomAnchorRef.current) return;
+    const container = reviewImageContainerRef.current;
+    if (!container) return;
+    pendingZoomAnchorRef.current = {
+      rect: container.getBoundingClientRect(),
+      clickX: clientX,
+      clickY: clientY,
+      targetScale,
+    };
+    const url = URL.createObjectURL(currentItem.file.file);
+    zoomFullSrcRef.current = url;
+    setZoomFullSrc(url);
+  }
+
+  function handleReviewImageDoubleClick(e: ReactMouseEvent<HTMLImageElement>) {
+    if (reviewZoom) {
+      exitReviewZoom();
+      return;
+    }
+    beginZoom(e.clientX, e.clientY);
+  }
+
+  function handleZoomImageLoaded(e: ReactSyntheticEvent<HTMLImageElement>) {
+    const pending = pendingZoomAnchorRef.current;
+    const container = reviewImageContainerRef.current;
+    if (!pending || !container) return;
+    pendingZoomAnchorRef.current = null;
+    const img = e.currentTarget;
+    const naturalW = img.naturalWidth;
+    const naturalH = img.naturalHeight;
+    const { rect, clickX, clickY, targetScale } = pending;
+    if (!naturalW || !naturalH || rect.width === 0 || rect.height === 0) return;
+    // fitScale = tỉ lệ trình duyệt đang thu nhỏ ảnh gốc để vừa khung (object-contain).
+    // 1/fitScale đưa ảnh về đúng 100% — 1 pixel ảnh gốc = 1 pixel màn hình.
+    const fitScale = Math.min(rect.width / naturalW, rect.height / naturalH);
+    if (!fitScale) return;
+    maxScaleRef.current = 1 / fitScale;
+    const scale = Math.min(targetScale ?? maxScaleRef.current, maxScaleRef.current);
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const dx = clickX - centerX;
+    const dy = clickY - centerY;
+    // Dịch ảnh để đúng điểm vừa nhấp/cuộn đứng yên trên màn hình sau khi phóng to quanh tâm ảnh.
+    setReviewZoom({ scale, tx: dx * (1 - scale), ty: dy * (1 - scale) });
+  }
+
+  // Cuộn chuột/trackpad để zoom mượt dần, luôn giữ đúng điểm dưới con trỏ đứng yên — giống
+  // Photoshop/Lightroom thay vì nhảy cấp tới thẳng 1 mức như double-click.
+  const WHEEL_ZOOM_SENSITIVITY = 0.0018;
+
+  function handleReviewWheel(e: ReactWheelEvent<HTMLDivElement>) {
+    if (!currentItem) return;
+    if (!zoomFullSrc) {
+      if (e.deltaY >= 0) return; // đang ở fit, cuộn ra thì không có gì để làm
+      e.preventDefault();
+      // Chưa biết maxScale (cần load ảnh gốc trước) — bắt đầu ở mức zoom vừa phải, sẽ tự
+      // kẹp lại theo maxScale thật trong handleZoomImageLoaded nếu ảnh có độ phân giải thấp.
+      beginZoom(e.clientX, e.clientY, 1.8);
+      return;
+    }
+    e.preventDefault();
+    const container = reviewImageContainerRef.current;
+    if (!container) return;
+    setReviewZoom((prev) => {
+      if (!prev) return prev;
+      const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
+      const nextScale = Math.min(
+        Math.max(prev.scale * factor, REVIEW_MIN_SCALE),
+        maxScaleRef.current
+      );
+      if (nextScale === prev.scale) return prev;
+      const rect = container.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      // Điểm đang nằm dưới con trỏ, tính theo transform HIỆN TẠI (trước khi đổi scale).
+      const localX = (e.clientX - centerX - prev.tx) / prev.scale;
+      const localY = (e.clientY - centerY - prev.ty) / prev.scale;
+      return {
+        scale: nextScale,
+        tx: e.clientX - centerX - localX * nextScale,
+        ty: e.clientY - centerY - localY * nextScale,
+      };
+    });
+  }
+
+  function handleZoomPointerDown(e: ReactPointerEvent<HTMLImageElement>) {
+    if (!reviewZoom) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsZoomDragging(true);
+    zoomDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      originTx: reviewZoom.tx,
+      originTy: reviewZoom.ty,
+    };
+  }
+
+  function handleZoomPointerMove(e: ReactPointerEvent<HTMLImageElement>) {
+    const drag = zoomDragRef.current;
+    if (!drag) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    setReviewZoom((prev) =>
+      prev ? { ...prev, tx: drag.originTx + dx, ty: drag.originTy + dy } : prev
+    );
+  }
+
+  function handleZoomPointerUp() {
+    zoomDragRef.current = null;
+    setIsZoomDragging(false);
+  }
+
+  // Filmstrip dưới màn hình review — tự cuộn ảnh đang xem vào giữa khung nhìn mỗi khi đổi.
+  const activeThumbRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    activeThumbRef.current?.scrollIntoView({
+      behavior: "smooth",
+      inline: "center",
+      block: "nearest",
+    });
+  }, [reviewIndex]);
 
   // Bước 1.8 — Close-up Panel: crop riêng từng khuôn mặt cho ảnh nhóm đông người (>1 mặt),
   // chỉ khi đang xem ảnh đó (không crop trước hàng loạt), huỷ URL cũ khi đổi ảnh/rời trang.
   const [faceCrops, setFaceCrops] = useState<string[]>([]);
+  // Bước hiệu năng — cache theo path để quay lại ảnh đã xem không phải decode/crop lại
+  // file gốc lần nữa. URL được revoke chung 1 lần khi rời trang (cùng effect với
+  // thumbnailUrlsRef bên trên), không revoke riêng lẻ để còn tái dùng được.
+  const faceCropCacheRef = useRef<Map<string, string[]>>(new Map());
   useEffect(() => {
     if (!currentItem || currentItem.metrics.faces.length <= 1) {
       setFaceCrops([]);
       return;
     }
+    const path = currentItem.file.relativePath;
+    const cached = faceCropCacheRef.current.get(path);
+    if (cached) {
+      setFaceCrops(cached);
+      return;
+    }
     let cancelled = false;
-    const urls: string[] = [];
     Promise.all(
       currentItem.metrics.faces.map((face) =>
         cropFaceFromFile(currentItem.file.file, face.box)
       )
     ).then((results) => {
       if (cancelled) return;
-      urls.push(...results);
+      faceCropCacheRef.current.set(path, results);
+      thumbnailUrlsRef.current.push(...results);
       setFaceCrops(results);
     });
     return () => {
       cancelled = true;
-      urls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, [currentItem]);
 
@@ -747,15 +1192,15 @@ export default function AlbumCullPage() {
       )}
 
       {items.length > 0 && (
-        <>
-          <div className="mt-4 flex items-center gap-2 text-xs">
+        <div className="mt-4 rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
+          <div className="flex items-center gap-2 text-xs">
             <button
               type="button"
               onClick={() => setViewMode("flat")}
-              className={`rounded-md border px-2 py-1 ${
+              className={`rounded-full border px-3 py-1 ${
                 viewMode === "flat"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                  ? "border-white bg-white text-neutral-900"
+                  : "border-neutral-700 text-neutral-300 hover:bg-neutral-800"
               }`}
             >
               Lưới phẳng
@@ -763,94 +1208,93 @@ export default function AlbumCullPage() {
             <button
               type="button"
               onClick={() => setViewMode("scenes")}
-              className={`rounded-md border px-2 py-1 ${
+              className={`rounded-full border px-3 py-1 ${
                 viewMode === "scenes"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                  ? "border-white bg-white text-neutral-900"
+                  : "border-neutral-700 text-neutral-300 hover:bg-neutral-800"
               }`}
             >
               Theo buổi chụp ({scenes.length})
             </button>
           </div>
 
-          {viewMode === "flat" ? (
-            <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-              {items.map((item) => renderPhotoCard(item))}
-            </div>
-          ) : (
-            <div className="mt-3 space-y-8">
-              {scenes.map((scene) => (
-                <div key={scene.sceneId}>
-                  <h3 className="text-sm font-semibold text-slate-700">
-                    Buổi {scene.sceneId + 1} —{" "}
-                    {formatTimeRange(scene.startMs, scene.endMs)} (
-                    {scene.items.length} ảnh)
-                  </h3>
-                  <div className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-                    {scene.bursts.map((burst) => {
-                      if (burst.items.length === 1) {
-                        return renderPhotoCard(burst.items[0]);
-                      }
-                      const isExpanded = expandedBursts.has(burst.burstId);
-                      if (!isExpanded) {
-                        return (
-                          <div key={`burst-${burst.burstId}`} className="relative">
-                            {renderPhotoCard(burst.representative, {
-                              isRepresentative: true,
+          <div
+            ref={setGridContainerNode}
+            className="relative mt-3"
+            style={{ height: rowVirtualizer.getTotalSize() }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const row = gridRows[virtualRow.index];
+              if (!row) return null;
+              return (
+                <div
+                  key={row.key}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  {row.kind === "sceneHeader" && (
+                    <h3 className="pb-2 pt-4 text-sm font-semibold text-neutral-300 first:pt-0">
+                      Buổi {row.scene.sceneId + 1} —{" "}
+                      {formatTimeRange(row.scene.startMs, row.scene.endMs)} (
+                      {row.scene.items.length} ảnh)
+                    </h3>
+                  )}
+                  {row.kind === "cards" && (
+                    <div className="flex gap-4 pb-4">
+                      {row.cards.map((card) => renderGridCard(card))}
+                    </div>
+                  )}
+                  {row.kind === "burstExpanded" && (
+                    <div className="mb-4 rounded-lg border border-neutral-800 p-3">
+                      <div className="flex flex-wrap gap-4">
+                        {row.burst.items.map((it) => (
+                          <div
+                            key={it.file.relativePath}
+                            className="shrink-0"
+                            style={{ width: itemSize || undefined }}
+                          >
+                            {renderPhotoCard(it, {
+                              isRepresentative: it === row.burst.representative,
                             })}
-                            <button
-                              type="button"
-                              onClick={() => toggleBurst(burst.burstId)}
-                              className="absolute bottom-7 left-1 rounded bg-slate-900/80 px-1.5 py-0.5 text-xs font-medium text-white"
-                            >
-                              +{burst.items.length - 1} ảnh giống
-                            </button>
                           </div>
-                        );
-                      }
-                      return (
-                        <div
-                          key={`burst-${burst.burstId}`}
-                          className="col-span-full rounded-lg border border-slate-200 p-2"
+                        ))}
+                      </div>
+                      <div className="mt-2 flex items-center gap-3 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => toggleBurst(row.burst.burstId)}
+                          className="text-neutral-400 hover:text-neutral-200"
                         >
-                          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-                            {burst.items.map((it) =>
-                              renderPhotoCard(it, {
-                                isRepresentative: it === burst.representative,
-                              })
-                            )}
-                          </div>
-                          <div className="mt-2 flex items-center gap-3 text-xs">
-                            <button
-                              type="button"
-                              onClick={() => toggleBurst(burst.burstId)}
-                              className="text-slate-500 hover:text-slate-700"
-                            >
-                              Thu gọn loạt này
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => rejectRestOfBurst(burst)}
-                              className="text-red-600 hover:text-red-700"
-                            >
-                              Loại {burst.items.length - 1} ảnh còn lại (giữ
-                              đại diện ★)
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                          Thu gọn loạt này
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rejectRestOfBurst(row.burst)}
+                          className="text-red-400 hover:text-red-300"
+                        >
+                          Loại {row.burst.items.length - 1} ảnh còn lại (giữ
+                          đại diện ★)
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            })}
+          </div>
 
-          <div className="mt-6 rounded-md border border-slate-200 bg-white p-4">
-            <h3 className="text-sm font-semibold text-slate-900">
+          <div className="mt-6 rounded-md border border-neutral-800 bg-neutral-900 p-4">
+            <h3 className="text-sm font-semibold text-neutral-100">
               Hành động cuối trên file gốc trên máy (tuỳ chọn)
             </h3>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-neutral-400">
               Áp dụng cho cả cặp RAW+JPG theo quyết định giữ/loại ở trên. Có
               thể bỏ qua và bấm thẳng "Tiếp tục upload" bên dưới nếu không cần
               đụng tới thư mục gốc.
@@ -862,7 +1306,7 @@ export default function AlbumCullPage() {
                 disabled={
                   keptPairs.length === 0 || localAction.kind === "running"
                 }
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm font-medium text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
               >
                 Sao chép {keptPairs.length} cặp ảnh "giữ" sang thư mục mới
               </button>
@@ -872,50 +1316,50 @@ export default function AlbumCullPage() {
                 disabled={
                   rejectedPairs.length === 0 || localAction.kind === "running"
                 }
-                className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                className="rounded-md border border-red-900 px-3 py-1.5 text-sm font-medium text-red-400 hover:bg-red-950 disabled:opacity-50"
               >
                 Xoá {rejectedPairs.length} cặp ảnh "loại" khỏi thư mục gốc
               </button>
             </div>
 
             {localAction.kind === "running" && (
-              <p className="mt-3 text-sm text-slate-600">
+              <p className="mt-3 text-sm text-neutral-400">
                 {localAction.action === "copy" ? "Đang sao chép" : "Đang xoá"}{" "}
                 {localAction.done}/{localAction.total} file...
               </p>
             )}
             {localAction.kind === "done" && (
-              <p className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              <p className="mt-3 rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
                 {localAction.message}
               </p>
             )}
             {localAction.kind === "error" && (
-              <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              <p className="mt-3 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-300">
                 {localAction.message}
               </p>
             )}
           </div>
 
-          <div className="sticky bottom-0 mt-6 flex items-center justify-between rounded-md border border-slate-200 bg-white/95 px-4 py-3 text-sm shadow-md backdrop-blur">
-            <span className="text-slate-600">
-              {counts.total} ảnh · Giữ {counts.keep} · Loại {counts.reject} ·
-              Chưa quyết {counts.undecided}
+          <div className="sticky bottom-0 mt-6 flex items-center justify-between rounded-md border border-neutral-800 bg-neutral-900/95 px-4 py-3 text-sm shadow-md backdrop-blur">
+            <span className="text-neutral-300">
+              {counts.total} ảnh · Giữ {counts.keep} · Xem lại {counts.review} ·
+              Loại {counts.reject}
             </span>
             <button
               type="button"
               onClick={handleContinueToUpload}
               disabled={counts.keep === 0}
-              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+              className="rounded-md bg-white px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-200 disabled:opacity-50"
             >
               Tiếp tục upload {counts.keep} ảnh đã giữ
             </button>
           </div>
-        </>
+        </div>
       )}
 
       {currentItem && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/95">
-          <div className="flex items-center justify-between px-4 py-3 text-sm text-slate-200">
+        <div className="fixed inset-0 z-50 flex flex-col bg-neutral-950">
+          <div className="flex items-center justify-between border-b border-white/10 bg-black/40 px-4 py-3 text-sm text-neutral-200 backdrop-blur">
             <button
               type="button"
               onClick={() => setReviewIndex(null)}
@@ -923,17 +1367,17 @@ export default function AlbumCullPage() {
             >
               ← Quay lại lưới (Esc)
             </button>
-            <span>
-              {reviewIndex! + 1} / {items.length}
+            <span className="text-neutral-400">
+              {reviewIndex! + 1} / {displayOrderItems.length}
               {isRunning && " (đang phân tích thêm...)"}
             </span>
             <button
               type="button"
               onClick={() => setAutoSkipFlagged((prev) => !prev)}
-              className={`rounded-md border px-2 py-1 text-xs ${
+              className={`rounded-full border px-2.5 py-1 text-xs ${
                 autoSkipFlagged
                   ? "border-emerald-400 text-emerald-300"
-                  : "border-slate-500 text-slate-300"
+                  : "border-neutral-600 text-neutral-400"
               }`}
             >
               Tự động bỏ qua ảnh loại (S):{" "}
@@ -941,36 +1385,86 @@ export default function AlbumCullPage() {
             </button>
           </div>
 
-          <div className="flex flex-1 items-center justify-center overflow-hidden px-4">
-            <img
-              src={thumbnails[currentItem.file.relativePath]}
-              alt={currentItem.file.file.name}
-              className="max-h-full max-w-full object-contain"
-            />
+          <div
+            ref={reviewImageContainerRef}
+            onWheel={handleReviewWheel}
+            className="relative flex flex-1 items-center justify-center overflow-hidden px-4"
+          >
+            {readyPreviewSrc && (
+              <img
+                key={readyPreviewSrc}
+                src={readyPreviewSrc}
+                alt={currentItem.file.file.name}
+                onDoubleClick={handleReviewImageDoubleClick}
+                className={`max-h-full max-w-full cursor-zoom-in object-contain [animation:fade-in_180ms_ease-out] ${
+                  reviewZoom ? "invisible" : ""
+                }`}
+              />
+            )}
+            {zoomFullSrc && (
+              <img
+                src={zoomFullSrc}
+                alt={currentItem.file.file.name}
+                draggable={false}
+                onLoad={handleZoomImageLoaded}
+                onDoubleClick={handleReviewImageDoubleClick}
+                onPointerDown={handleZoomPointerDown}
+                onPointerMove={handleZoomPointerMove}
+                onPointerUp={handleZoomPointerUp}
+                onPointerLeave={handleZoomPointerUp}
+                style={
+                  reviewZoom
+                    ? {
+                        transform: `translate(${reviewZoom.tx}px, ${reviewZoom.ty}px) scale(${reviewZoom.scale})`,
+                        transformOrigin: "center center",
+                        // Tắt transition lúc đang kéo để pan bám sát chuột ngay lập tức
+                        // (không trễ/dính), chỉ bật lại khi zoom bằng cuộn chuột/nhấp đúp.
+                        transition: isZoomDragging
+                          ? "none"
+                          : "transform 150ms cubic-bezier(0.22, 1, 0.36, 1)",
+                      }
+                    : undefined
+                }
+                className={`absolute inset-0 h-full w-full object-contain ${
+                  reviewZoom ? "cursor-grab active:cursor-grabbing" : "invisible"
+                }`}
+              />
+            )}
+            {reviewZoom && (
+              <span className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-2.5 py-1 text-[11px] font-medium text-white">
+                Zoom {Math.round((reviewZoom.scale / maxScaleRef.current) * 100)}% — cuộn để
+                zoom, kéo để xem, nhấp đúp/Esc để thoát
+              </span>
+            )}
           </div>
 
-          <div className="px-4 py-3 text-center text-sm text-slate-300">
-            <p className="truncate">{currentItem.file.file.name}</p>
-            <p className="mt-1">
-              <span
-                className={`rounded px-1.5 py-0.5 ${
-                  FLAG_BADGE[classifyCullingFlag(currentItem.metrics)]
-                }`}
-              >
-                {currentItem.metrics.sharpnessScore.toFixed(0)} điểm nét ·{" "}
-                {FLAG_LABEL[classifyCullingFlag(currentItem.metrics)]}
+          <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-2 text-xs">
+            <span className="max-w-xs truncate text-neutral-300">
+              {currentItem.file.file.name}
+            </span>
+            <span
+              className={`rounded-full px-2 py-0.5 font-medium ${
+                FLAG_BADGE[classifyCullingFlag(currentItem.metrics)]
+              }`}
+            >
+              {currentItem.metrics.sharpnessScore.toFixed(0)} điểm nét ·{" "}
+              {FLAG_LABEL[classifyCullingFlag(currentItem.metrics)]}
+            </span>
+            <span className="text-neutral-500">
+              Mắt: {EYE_LABEL[currentItem.metrics.eyeStatus]}
+              {currentItem.metrics.faceCount > 1 &&
+                ` · ${currentItem.metrics.faceCount} khuôn mặt`}
+            </span>
+            {!reviewZoom && (
+              <span className="text-neutral-600">
+                Cuộn chuột hoặc nhấp đúp vào ảnh để zoom
               </span>
-              <span className="ml-2 text-slate-400">
-                Mắt: {EYE_LABEL[currentItem.metrics.eyeStatus]}
-                {currentItem.metrics.faceCount > 1 &&
-                  ` · ${currentItem.metrics.faceCount} khuôn mặt`}
-              </span>
-            </p>
+            )}
           </div>
 
           {faceCrops.length > 1 && (
             <div className="border-t border-white/10 px-4 py-3">
-              <p className="mb-2 text-center text-xs text-slate-400">
+              <p className="mb-2 text-center text-xs text-neutral-500">
                 Close-up từng khuôn mặt ({faceCrops.length})
               </p>
               <div className="flex justify-center gap-3 overflow-x-auto">
@@ -989,7 +1483,7 @@ export default function AlbumCullPage() {
                         }`}
                       />
                     )}
-                    <p className="mt-1 text-xs text-slate-400">
+                    <p className="mt-1 text-xs text-neutral-500">
                       {EYE_LABEL[face.eyeStatus]}
                     </p>
                   </div>
@@ -998,35 +1492,76 @@ export default function AlbumCullPage() {
             </div>
           )}
 
-          <div className="flex items-center justify-center gap-3 px-4 pb-6">
+          <div className="flex items-center justify-center gap-3 px-4 py-4">
             <button
               type="button"
               onClick={() => moveTo(reviewIndex! - 1, -1)}
-              className="rounded-md border border-slate-500 px-3 py-2 text-sm text-slate-200 hover:bg-white/10"
+              className="flex items-center gap-1.5 rounded-full border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10"
             >
-              ← Trước (←/A)
+              ← <span className="rounded bg-white/10 px-1 text-[10px]">A</span>
             </button>
             <button
               type="button"
-              onClick={() => decideCurrent("reject")}
-              className="rounded-md bg-red-600 px-5 py-2 text-sm font-medium text-white hover:bg-red-700"
+              onClick={() => decideCurrent("red")}
+              className="flex items-center gap-2 rounded-full bg-red-600 px-5 py-2 text-sm font-medium text-white hover:bg-red-700"
             >
-              Loại (X)
+              Loại <span className="rounded bg-black/20 px-1 text-[10px]">X</span>
             </button>
             <button
               type="button"
-              onClick={() => decideCurrent("keep")}
-              className="rounded-md bg-emerald-600 px-5 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+              onClick={() => decideCurrent("yellow")}
+              className="flex items-center gap-2 rounded-full bg-amber-500 px-5 py-2 text-sm font-medium text-white hover:bg-amber-600"
             >
-              Giữ (K/Space)
+              Xem lại <span className="rounded bg-black/20 px-1 text-[10px]">Y</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => decideCurrent("green")}
+              className="flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            >
+              Giữ <span className="rounded bg-black/20 px-1 text-[10px]">K</span>
             </button>
             <button
               type="button"
               onClick={() => moveTo(reviewIndex! + 1, 1)}
-              className="rounded-md border border-slate-500 px-3 py-2 text-sm text-slate-200 hover:bg-white/10"
+              className="flex items-center gap-1.5 rounded-full border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10"
             >
-              Sau (→/D)
+              <span className="rounded bg-white/10 px-1 text-[10px]">D</span> →
             </button>
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto border-t border-white/10 bg-black/60 px-4 py-3">
+            {displayOrderItems.map((it, idx) => {
+              const path = it.file.relativePath;
+              const decision = decisions[path] ?? "yellow";
+              const isActive = idx === reviewIndex;
+              return (
+                <button
+                  key={path}
+                  ref={isActive ? activeThumbRef : undefined}
+                  type="button"
+                  onClick={() => setReviewIndex(idx)}
+                  className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-md ring-2 transition-opacity ${
+                    isActive
+                      ? "opacity-100 ring-white"
+                      : "opacity-60 ring-transparent hover:opacity-90"
+                  }`}
+                >
+                  {thumbnails[path] && (
+                    <img
+                      src={thumbnails[path]}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      className="h-full w-full object-cover"
+                    />
+                  )}
+                  <span
+                    className={`absolute inset-x-0 bottom-0 h-1 ${DECISION_DOT[decision]}`}
+                  />
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

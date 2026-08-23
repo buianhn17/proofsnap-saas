@@ -102,7 +102,12 @@ export default function PhotoAnnotationLightbox({
 
   function handlePointerMove(e: ReactPointerEvent<SVGSVGElement>) {
     if (!isDrawMode || !isPointerDown.current) return;
-    setCurrentStroke((prev) => (prev ? [...prev, pointFromEvent(e)] : prev));
+    // Tính điểm NGAY trong handler (khi e.currentTarget còn hợp lệ) rồi mới đưa vào updater —
+    // React trả currentTarget về null ngay sau khi handler đồng bộ kết thúc, còn pointermove
+    // bắn liên tục có thể khiến React hoãn chạy updater này ra ngoài lượt dispatch gốc, lúc
+    // đó gọi lại pointFromEvent(e) bên trong updater sẽ crash vì currentTarget đã là null.
+    const point = pointFromEvent(e);
+    setCurrentStroke((prev) => (prev ? [...prev, point] : prev));
   }
 
   function handlePointerUp() {
@@ -178,7 +183,7 @@ export default function PhotoAnnotationLightbox({
       <div className="relative flex flex-1 items-center justify-center overflow-hidden px-4">
         <div className="relative inline-block max-h-full max-w-full">
           <img
-            src={`${import.meta.env.VITE_API_BASE_URL}/api/public/albums/${albumId}/photos/${photoId}/view`}
+            src={`${import.meta.env.VITE_API_BASE_URL}/api/public/albums/${albumId}/photos/${photoId}/view?size=preview`}
             alt={photoName}
             className="block max-h-[75vh] max-w-full select-none object-contain"
             draggable={false}
