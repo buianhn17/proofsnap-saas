@@ -121,10 +121,17 @@ const FLAG_DOT: Record<CullingFlag, string> = {
   red: "bg-red-500",
 };
 
-const FLAG_BADGE: Record<CullingFlag, string> = {
-  green: "bg-emerald-500/20 text-emerald-300",
-  yellow: "bg-amber-500/20 text-amber-300",
-  red: "bg-red-500/20 text-red-300",
+const FLAG_OVERLAY: Record<CullingFlag, { bg: string; border: string; text: string; label: string }> = {
+  green: { bg: "bg-[#1c3325]", border: "border-[#2e5c41]", text: "text-[#93f5b7]", label: "CHẤT LƯỢNG TỐT" },
+  yellow: { bg: "bg-[#4a3600]", border: "border-[#805d00]", text: "text-[#ffb95e]", label: "CẦN XEM LẠI" },
+  red: { bg: "bg-[#3d1a1a]", border: "border-[#6b2e2e]", text: "text-[#ffb4ab]", label: "MỜ HOẶC NHẮM MẮT" },
+};
+
+const EYE_RING: Record<EyeStatus, string> = {
+  open: "ring-emerald-500",
+  squint: "ring-amber-500",
+  closed: "ring-red-500",
+  no_face: "ring-neutral-600",
 };
 
 const DECISION_BADGE: Record<Decision, string> = {
@@ -767,7 +774,7 @@ export default function AlbumCullPage() {
       <button
         type="button"
         onClick={() => index !== undefined && setReviewIndex(index)}
-        className="group relative block w-full overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-800 transition-transform hover:z-10 hover:scale-[1.03] hover:ring-neutral-600"
+        className="group relative block w-full overflow-hidden rounded-[4px] bg-[#201f1f] ring-1 ring-[#414752] transition-transform hover:z-10 hover:scale-[1.03] hover:ring-[#a9c7ff]"
       >
         {thumbnails[path] && (
           <img
@@ -785,7 +792,7 @@ export default function AlbumCullPage() {
           />
         )}
         {opts.isRepresentative && (
-          <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+          <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.6px] text-[#a9c7ff]">
             ★ Đại diện
           </span>
         )}
@@ -794,7 +801,7 @@ export default function AlbumCullPage() {
         >
           {DECISION_LABEL[decision]}
         </span>
-        <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-2 py-1.5 text-left text-[11px] text-neutral-200 opacity-0 transition-opacity group-hover:opacity-100">
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-[rgba(19,19,19,0.9)] to-transparent px-2 py-1.5 text-left font-mono text-[11px] tracking-[0.6px] text-[#e5e2e1]">
           {item.file.file.name}
         </span>
       </button>
@@ -819,7 +826,7 @@ export default function AlbumCullPage() {
         <button
           type="button"
           onClick={() => toggleBurst(card.burst.burstId)}
-          className="absolute bottom-9 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-black/90"
+          className="absolute bottom-9 left-2 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.6px] text-[#e5e2e1] hover:bg-black/90"
         >
           +{card.burst.items.length - 1} ảnh giống
         </button>
@@ -828,6 +835,28 @@ export default function AlbumCullPage() {
   }
 
   const currentItem = reviewIndex !== null ? displayOrderItems[reviewIndex] : null;
+
+  // Bước UI — tra cứu nhanh cảnh/cụm chứa ảnh đang xem, để hiện đúng ngữ cảnh thật (không
+  // bịa tên cảnh) ở header và dải phim review, dựa trên đúng dữ liệu gom nhóm ở `scenes`.
+  const sceneAndBurstByPath = useMemo(() => {
+    const map = new Map<
+      string,
+      { sceneIndex: number; scene: SceneGroup; burst: BurstGroup | null }
+    >();
+    scenes.forEach((scene, sceneIndex) => {
+      for (const burst of scene.bursts) {
+        const burst_ = burst.items.length > 1 ? burst : null;
+        for (const item of burst.items) {
+          map.set(item.file.relativePath, { sceneIndex, scene, burst: burst_ });
+        }
+      }
+    });
+    return map;
+  }, [scenes]);
+
+  const currentContext = currentItem
+    ? sceneAndBurstByPath.get(currentItem.file.relativePath)
+    : undefined;
 
   // Bước hiệu năng — chỉ đổi ảnh hiển thị SAU KHI đã decode xong bản preview mới (thay vì
   // đổi src ngay rồi để trình duyệt decode lúc paint), tránh khựng/giật khi chuyển ảnh
@@ -1085,12 +1114,12 @@ export default function AlbumCullPage() {
   if (!supported) {
     return (
       <div className="max-w-2xl">
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <div className="rounded-md border border-[#805d00] bg-[#4a3600] px-3 py-2 text-sm text-[#ffb95e]">
           {FILE_SYSTEM_ACCESS_UNSUPPORTED_MESSAGE}
         </div>
         <Link
           to={`/admin/albums/${albumId}`}
-          className="mt-3 inline-block text-sm text-slate-500 hover:text-slate-700"
+          className="mt-3 inline-block text-sm text-[#c1c6d4] hover:text-[#e5e2e1]"
         >
           ← Quay lại album
         </Link>
@@ -1100,13 +1129,18 @@ export default function AlbumCullPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-900">
-          Duyệt & lọc ảnh {album ? `— ${album.name}` : ""}
-        </h1>
+      <div className="flex items-end justify-between border-b border-[#414752] pb-[25px]">
+        <div>
+          <h1 className="text-[32px] font-semibold tracking-[-0.32px] text-[#e5e2e1]">
+            Chế độ phân cảnh
+          </h1>
+          <p className="mt-1 text-base text-[#c1c6d4]">
+            {album ? `${album.name} — ` : ""}Duyệt và gộp ảnh theo thời gian thực.
+          </p>
+        </div>
         <Link
           to={`/admin/albums/${albumId}`}
-          className="text-sm text-slate-500 hover:text-slate-700"
+          className="text-sm text-[#c1c6d4] hover:text-[#e5e2e1]"
         >
           ← Quay lại album
         </Link>
@@ -1118,12 +1152,12 @@ export default function AlbumCullPage() {
             type="button"
             onClick={handlePickFolder}
             disabled={isScanning}
-            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+            className="rounded-[4px] bg-[#5a9cff] px-4 py-2 text-sm font-medium text-[#003369] hover:bg-[#4a8cef] disabled:opacity-50"
           >
             {isScanning ? "Đang quét..." : "Chọn thư mục ảnh gốc trên máy"}
           </button>
           {scanError && (
-            <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="mt-2 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
               {scanError}
             </p>
           )}
@@ -1132,7 +1166,7 @@ export default function AlbumCullPage() {
 
       {scanResult && items.length === 0 && !isRunning && (
         <div className="mt-6 flex items-center gap-3">
-          <span className="text-sm text-slate-600">
+          <span className="text-sm text-[#c1c6d4]">
             "{scanResult.folderName}":{" "}
             {scanResult.files.filter((f) => f.kind === "jpg").length} ảnh JPG
             tìm thấy
@@ -1140,14 +1174,14 @@ export default function AlbumCullPage() {
           <button
             type="button"
             onClick={handleAnalyze}
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+            className="rounded-[4px] bg-[#5a9cff] px-4 py-2 text-sm font-medium text-[#003369] hover:bg-[#4a8cef]"
           >
             Bắt đầu phân tích
           </button>
           <button
             type="button"
             onClick={handlePickFolder}
-            className="text-sm text-slate-500 hover:text-slate-700"
+            className="text-sm text-[#c1c6d4] hover:text-[#e5e2e1]"
           >
             Chọn thư mục khác
           </button>
@@ -1155,34 +1189,34 @@ export default function AlbumCullPage() {
       )}
 
       {runError && (
-        <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p className="mt-2 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
           {runError}
         </p>
       )}
 
       {isRunning && progress && (
-        <div className="mt-4 rounded-md border border-slate-200 bg-white p-3 text-sm">
+        <div className="mt-4 rounded-[4px] border border-[#414752] bg-[#1c1b1b] p-3 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-slate-700">
+            <span className="text-[#e5e2e1]">
               Đang phân tích {progress.processed}/{progress.total}:{" "}
               {progress.currentFileName}
             </span>
             <div className="flex items-center gap-3">
-              <span className="text-slate-500">
+              <span className="font-mono text-xs tracking-[0.6px] text-[#c1c6d4]">
                 {progress.imagesPerSecond.toFixed(2)} ảnh/giây
               </span>
               <button
                 type="button"
                 onClick={handleStopAnalyze}
-                className="rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                className="rounded-[4px] border border-[#6b2e2e] px-2 py-1 text-xs font-medium text-[#ffb4ab] hover:bg-red-950/50"
               >
                 Dừng
               </button>
             </div>
           </div>
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#2a2a2a]">
             <div
-              className="h-full rounded-full bg-slate-900 transition-all"
+              className="h-full rounded-full bg-[#5a9cff] transition-all"
               style={{
                 width: `${(progress.processed / progress.total) * 100}%`,
               }}
@@ -1192,30 +1226,36 @@ export default function AlbumCullPage() {
       )}
 
       {items.length > 0 && (
-        <div className="mt-4 rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
-          <div className="flex items-center gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() => setViewMode("flat")}
-              className={`rounded-full border px-3 py-1 ${
-                viewMode === "flat"
-                  ? "border-white bg-white text-neutral-900"
-                  : "border-neutral-700 text-neutral-300 hover:bg-neutral-800"
-              }`}
-            >
-              Lưới phẳng
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("scenes")}
-              className={`rounded-full border px-3 py-1 ${
-                viewMode === "scenes"
-                  ? "border-white bg-white text-neutral-900"
-                  : "border-neutral-700 text-neutral-300 hover:bg-neutral-800"
-              }`}
-            >
-              Theo buổi chụp ({scenes.length})
-            </button>
+        <div className="mt-4 rounded-lg border border-[#414752] bg-[#131313] p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setViewMode("flat")}
+                className={`rounded-full border px-3 py-1 font-mono tracking-[0.6px] ${
+                  viewMode === "flat"
+                    ? "border-white bg-white text-[#131313]"
+                    : "border-[#414752] text-[#c1c6d4] hover:bg-[#2a2a2a]"
+                }`}
+              >
+                Lưới phẳng
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("scenes")}
+                className={`rounded-full border px-3 py-1 font-mono tracking-[0.6px] ${
+                  viewMode === "scenes"
+                    ? "border-white bg-white text-[#131313]"
+                    : "border-[#414752] text-[#c1c6d4] hover:bg-[#2a2a2a]"
+                }`}
+              >
+                Theo buổi chụp ({scenes.length})
+              </button>
+            </div>
+            <span className="font-mono text-xs tracking-[0.6px] text-[#c1c6d4]">
+              {counts.total} ảnh · Giữ {counts.keep} · Xem lại {counts.review} ·
+              Loại {counts.reject}
+            </span>
           </div>
 
           <div
@@ -1240,11 +1280,15 @@ export default function AlbumCullPage() {
                   }}
                 >
                   {row.kind === "sceneHeader" && (
-                    <h3 className="pb-2 pt-4 text-sm font-semibold text-neutral-300 first:pt-0">
-                      Buổi {row.scene.sceneId + 1} —{" "}
-                      {formatTimeRange(row.scene.startMs, row.scene.endMs)} (
-                      {row.scene.items.length} ảnh)
-                    </h3>
+                    <div className="flex items-center gap-4 pb-2 pt-4 first:pt-0">
+                      <h3 className="text-xl font-semibold text-[#e5e2e1]">
+                        Buổi {row.scene.sceneId + 1} —{" "}
+                        {formatTimeRange(row.scene.startMs, row.scene.endMs)}
+                      </h3>
+                      <span className="border border-[#414752] bg-[#201f1f] px-[9px] py-[5px] font-mono text-xs tracking-[0.6px] text-[#c1c6d4]">
+                        {row.scene.items.length} ảnh
+                      </span>
+                    </div>
                   )}
                   {row.kind === "cards" && (
                     <div className="flex gap-4 pb-4">
@@ -1252,7 +1296,7 @@ export default function AlbumCullPage() {
                     </div>
                   )}
                   {row.kind === "burstExpanded" && (
-                    <div className="mb-4 rounded-lg border border-neutral-800 p-3">
+                    <div className="mb-4 rounded-lg border border-[#414752] bg-[#1c1b1b] p-3">
                       <div className="flex flex-wrap gap-4">
                         {row.burst.items.map((it) => (
                           <div
@@ -1270,14 +1314,14 @@ export default function AlbumCullPage() {
                         <button
                           type="button"
                           onClick={() => toggleBurst(row.burst.burstId)}
-                          className="text-neutral-400 hover:text-neutral-200"
+                          className="font-mono tracking-[0.6px] text-[#c1c6d4] hover:text-[#e5e2e1]"
                         >
                           Thu gọn loạt này
                         </button>
                         <button
                           type="button"
                           onClick={() => rejectRestOfBurst(row.burst)}
-                          className="text-red-400 hover:text-red-300"
+                          className="font-mono tracking-[0.6px] text-[#ffb4ab] hover:text-red-300"
                         >
                           Loại {row.burst.items.length - 1} ảnh còn lại (giữ
                           đại diện ★)
@@ -1290,11 +1334,11 @@ export default function AlbumCullPage() {
             })}
           </div>
 
-          <div className="mt-6 rounded-md border border-neutral-800 bg-neutral-900 p-4">
-            <h3 className="text-sm font-semibold text-neutral-100">
+          <div className="mt-6 rounded-[4px] border border-[#414752] bg-[#1c1b1b] p-4">
+            <h3 className="text-sm font-semibold text-[#e5e2e1]">
               Hành động cuối trên file gốc trên máy (tuỳ chọn)
             </h3>
-            <p className="mt-1 text-xs text-neutral-400">
+            <p className="mt-1 text-xs text-[#c1c6d4]">
               Áp dụng cho cả cặp RAW+JPG theo quyết định giữ/loại ở trên. Có
               thể bỏ qua và bấm thẳng "Tiếp tục upload" bên dưới nếu không cần
               đụng tới thư mục gốc.
@@ -1306,7 +1350,7 @@ export default function AlbumCullPage() {
                 disabled={
                   keptPairs.length === 0 || localAction.kind === "running"
                 }
-                className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm font-medium text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+                className="rounded-[4px] border border-[#414752] px-3 py-1.5 text-sm font-medium text-[#e5e2e1] hover:bg-[#2a2a2a] disabled:opacity-50"
               >
                 Sao chép {keptPairs.length} cặp ảnh "giữ" sang thư mục mới
               </button>
@@ -1316,32 +1360,32 @@ export default function AlbumCullPage() {
                 disabled={
                   rejectedPairs.length === 0 || localAction.kind === "running"
                 }
-                className="rounded-md border border-red-900 px-3 py-1.5 text-sm font-medium text-red-400 hover:bg-red-950 disabled:opacity-50"
+                className="rounded-[4px] border border-[#6b2e2e] px-3 py-1.5 text-sm font-medium text-[#ffb4ab] hover:bg-red-950/50 disabled:opacity-50"
               >
                 Xoá {rejectedPairs.length} cặp ảnh "loại" khỏi thư mục gốc
               </button>
             </div>
 
             {localAction.kind === "running" && (
-              <p className="mt-3 text-sm text-neutral-400">
+              <p className="mt-3 text-sm text-[#c1c6d4]">
                 {localAction.action === "copy" ? "Đang sao chép" : "Đang xoá"}{" "}
                 {localAction.done}/{localAction.total} file...
               </p>
             )}
             {localAction.kind === "done" && (
-              <p className="mt-3 rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
+              <p className="mt-3 rounded-md bg-[#1a3d24] px-3 py-2 text-sm text-[#86e8a8]">
                 {localAction.message}
               </p>
             )}
             {localAction.kind === "error" && (
-              <p className="mt-3 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-300">
+              <p className="mt-3 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
                 {localAction.message}
               </p>
             )}
           </div>
 
-          <div className="sticky bottom-0 mt-6 flex items-center justify-between rounded-md border border-neutral-800 bg-neutral-900/95 px-4 py-3 text-sm shadow-md backdrop-blur">
-            <span className="text-neutral-300">
+          <div className="sticky bottom-0 mt-6 flex items-center justify-between rounded-[4px] border border-[#414752] bg-[#0e0e0e]/95 px-4 py-3 text-sm shadow-md backdrop-blur">
+            <span className="font-mono tracking-[0.6px] text-[#c1c6d4]">
               {counts.total} ảnh · Giữ {counts.keep} · Xem lại {counts.review} ·
               Loại {counts.reject}
             </span>
@@ -1349,7 +1393,7 @@ export default function AlbumCullPage() {
               type="button"
               onClick={handleContinueToUpload}
               disabled={counts.keep === 0}
-              className="rounded-md bg-white px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-200 disabled:opacity-50"
+              className="rounded-[4px] bg-[#5a9cff] px-4 py-2 text-sm font-medium text-[#003369] hover:bg-[#4a8cef] disabled:opacity-50"
             >
               Tiếp tục upload {counts.keep} ảnh đã giữ
             </button>
@@ -1358,37 +1402,58 @@ export default function AlbumCullPage() {
       )}
 
       {currentItem && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-neutral-950">
-          <div className="flex items-center justify-between border-b border-white/10 bg-black/40 px-4 py-3 text-sm text-neutral-200 backdrop-blur">
-            <button
-              type="button"
-              onClick={() => setReviewIndex(null)}
-              className="hover:text-white"
-            >
-              ← Quay lại lưới (Esc)
-            </button>
-            <span className="text-neutral-400">
-              {reviewIndex! + 1} / {displayOrderItems.length}
-              {isRunning && " (đang phân tích thêm...)"}
-            </span>
-            <button
-              type="button"
-              onClick={() => setAutoSkipFlagged((prev) => !prev)}
-              className={`rounded-full border px-2.5 py-1 text-xs ${
-                autoSkipFlagged
-                  ? "border-emerald-400 text-emerald-300"
-                  : "border-neutral-600 text-neutral-400"
-              }`}
-            >
-              Tự động bỏ qua ảnh loại (S):{" "}
-              {autoSkipFlagged ? "Bật" : "Tắt"}
-            </button>
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#131313]">
+          <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#414752] bg-[#201f1f] px-8">
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => setReviewIndex(null)}
+                className="flex items-center justify-center rounded-xl p-2 text-[#e5e2e1] hover:bg-[#2a2a2a]"
+                title="Quay lại lưới (Esc)"
+              >
+                ←
+              </button>
+              {album && (
+                <span className="text-xl font-semibold text-[#e5e2e1]">
+                  {album.name}
+                </span>
+              )}
+              {currentContext && (
+                <span className="rounded-md border border-[#414752] bg-[#2a2a2a] px-[9px] py-[5px] font-mono text-xs tracking-[0.6px] text-[#c1c6d4]">
+                  Cảnh {currentContext.sceneIndex + 1}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-6">
+              <span className="text-base text-[#c1c6d4]">
+                {reviewIndex! + 1} / {displayOrderItems.length} ảnh
+                {isRunning && " (đang phân tích thêm...)"}
+                {currentContext?.burst && (
+                  <span className="text-[#ffb95e]">
+                    {" "}
+                    | Cụm {currentContext.burst.burstId + 1} (
+                    {currentContext.burst.items.length} ảnh)
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => setAutoSkipFlagged((prev) => !prev)}
+                className={`rounded-full border px-2.5 py-1 font-mono text-xs tracking-[0.6px] ${
+                  autoSkipFlagged
+                    ? "border-[#2e5c41] text-[#93f5b7]"
+                    : "border-[#414752] text-[#c1c6d4]"
+                }`}
+              >
+                Tự động bỏ qua ảnh loại (S): {autoSkipFlagged ? "Bật" : "Tắt"}
+              </button>
+            </div>
           </div>
 
           <div
             ref={reviewImageContainerRef}
             onWheel={handleReviewWheel}
-            className="relative flex flex-1 items-center justify-center overflow-hidden px-4"
+            className="relative flex flex-1 items-center justify-center overflow-hidden p-6"
           >
             {readyPreviewSrc && (
               <img
@@ -1396,7 +1461,7 @@ export default function AlbumCullPage() {
                 src={readyPreviewSrc}
                 alt={currentItem.file.file.name}
                 onDoubleClick={handleReviewImageDoubleClick}
-                className={`max-h-full max-w-full cursor-zoom-in object-contain [animation:fade-in_180ms_ease-out] ${
+                className={`max-h-full max-w-full cursor-zoom-in border border-[#2a2a2a] object-contain shadow-[0px_25px_50px_-12px_rgba(0,0,0,0.25)] [animation:fade-in_180ms_ease-out] ${
                   reviewZoom ? "invisible" : ""
                 }`}
               />
@@ -1436,132 +1501,186 @@ export default function AlbumCullPage() {
                 zoom, kéo để xem, nhấp đúp/Esc để thoát
               </span>
             )}
+
+            <button
+              type="button"
+              onClick={() => moveTo(reviewIndex! - 1, -1)}
+              className="absolute left-6 top-1/2 flex size-12 -translate-y-1/2 items-center justify-center rounded-xl border border-[#414752] bg-[rgba(32,31,31,0.5)] text-[#e5e2e1] shadow-lg backdrop-blur-[2px] hover:bg-[rgba(32,31,31,0.8)]"
+            >
+              ←
+            </button>
+            <button
+              type="button"
+              onClick={() => moveTo(reviewIndex! + 1, 1)}
+              className="absolute right-6 top-1/2 flex size-12 -translate-y-1/2 items-center justify-center rounded-xl border border-[#414752] bg-[rgba(32,31,31,0.5)] text-[#e5e2e1] shadow-lg backdrop-blur-[2px] hover:bg-[rgba(32,31,31,0.8)]"
+            >
+              →
+            </button>
+
+            {!reviewZoom && (() => {
+              const flag = classifyCullingFlag(currentItem.metrics);
+              const overlay = FLAG_OVERLAY[flag];
+              return (
+                <div className="absolute right-6 top-6 flex flex-col items-end gap-2">
+                  <div
+                    className={`flex items-center gap-2 rounded-[4px] border px-[13px] py-[7px] backdrop-blur-[6px] ${overlay.bg} ${overlay.border}`}
+                  >
+                    <div>
+                      <p className={`font-mono text-xs font-medium uppercase tracking-[0.6px] ${overlay.text}`}>
+                        {overlay.label}
+                      </p>
+                      <p className={`text-sm ${overlay.text}`}>
+                        Độ nét: {currentItem.metrics.sharpnessScore.toFixed(0)}/100
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-[4px] border border-[#414752] bg-[#201f1f]/90 px-[13px] py-[7px] backdrop-blur-[6px]">
+                    <p className="text-sm text-[#c1c6d4]">
+                      Mắt: {EYE_LABEL[currentItem.metrics.eyeStatus]}
+                      {currentItem.metrics.earValue !== null &&
+                        ` (EAR ${currentItem.metrics.earValue.toFixed(2)})`}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-2 text-xs">
-            <span className="max-w-xs truncate text-neutral-300">
+          <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 px-4 py-2 text-xs">
+            <span className="max-w-xs truncate font-mono tracking-[0.6px] text-[#c1c6d4]">
               {currentItem.file.file.name}
             </span>
-            <span
-              className={`rounded-full px-2 py-0.5 font-medium ${
-                FLAG_BADGE[classifyCullingFlag(currentItem.metrics)]
-              }`}
-            >
-              {currentItem.metrics.sharpnessScore.toFixed(0)} điểm nét ·{" "}
-              {FLAG_LABEL[classifyCullingFlag(currentItem.metrics)]}
-            </span>
-            <span className="text-neutral-500">
-              Mắt: {EYE_LABEL[currentItem.metrics.eyeStatus]}
-              {currentItem.metrics.faceCount > 1 &&
-                ` · ${currentItem.metrics.faceCount} khuôn mặt`}
-            </span>
+            {currentItem.metrics.faceCount > 1 && (
+              <span className="text-[#8b919e]">
+                · {currentItem.metrics.faceCount} khuôn mặt
+              </span>
+            )}
             {!reviewZoom && (
-              <span className="text-neutral-600">
+              <span className="text-[#5a5958]">
                 Cuộn chuột hoặc nhấp đúp vào ảnh để zoom
               </span>
             )}
           </div>
 
-          {faceCrops.length > 1 && (
-            <div className="border-t border-white/10 px-4 py-3">
-              <p className="mb-2 text-center text-xs text-neutral-500">
-                Close-up từng khuôn mặt ({faceCrops.length})
-              </p>
-              <div className="flex justify-center gap-3 overflow-x-auto">
-                {currentItem.metrics.faces.map((face, index) => (
-                  <div key={index} className="shrink-0 text-center">
-                    {faceCrops[index] && (
-                      <img
-                        src={faceCrops[index]}
-                        alt={`Khuôn mặt ${index + 1}`}
-                        className={`h-20 w-20 rounded-lg object-cover ring-2 ${
-                          face.eyeStatus === "closed"
-                            ? "ring-red-500"
-                            : face.eyeStatus === "squint"
-                              ? "ring-amber-500"
-                              : "ring-emerald-500"
+          <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="flex flex-col border-t border-[#414752] bg-[#1c1b1b]">
+                <div className="flex items-center justify-between border-b border-[rgba(32,31,31,0.5)] px-6 py-2">
+                  <span className="font-mono text-xs font-medium uppercase tracking-[0.6px] text-[#c1c6d4]">
+                    {currentContext
+                      ? `Cảnh ${currentContext.sceneIndex + 1} — ${
+                          currentContext.burst
+                            ? `Cụm ${currentContext.burst.items.length} ảnh`
+                            : `${currentContext.scene.items.length} ảnh`
+                        }`
+                      : `${displayOrderItems.length} ảnh trong lượt duyệt này`}
+                  </span>
+                </div>
+                <div className="flex gap-2 overflow-x-auto px-6 py-2">
+                  {displayOrderItems.map((it, idx) => {
+                    const path = it.file.relativePath;
+                    const decision = decisions[path] ?? "yellow";
+                    const isActive = idx === reviewIndex;
+                    return (
+                      <button
+                        key={path}
+                        ref={isActive ? activeThumbRef : undefined}
+                        type="button"
+                        onClick={() => setReviewIndex(idx)}
+                        className={`relative aspect-[3/2] h-16 shrink-0 overflow-hidden rounded-[2px] border transition-opacity ${
+                          isActive
+                            ? "border-2 border-[#5a9cff] opacity-100"
+                            : "border-[#414752] opacity-60 hover:opacity-90"
                         }`}
-                      />
-                    )}
-                    <p className="mt-1 text-xs text-neutral-500">
-                      {EYE_LABEL[face.eyeStatus]}
-                    </p>
-                  </div>
-                ))}
+                      >
+                        {thumbnails[path] && (
+                          <img
+                            src={thumbnails[path]}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                            className="h-full w-full object-cover"
+                          />
+                        )}
+                        {isActive && (
+                          <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-[#5a9cff] text-[10px] text-white">
+                            ✓
+                          </span>
+                        )}
+                        <span
+                          className={`absolute bottom-1 right-1 size-2 rounded-full shadow-[0px_0px_4px_0px_rgba(0,0,0,0.5)] ${DECISION_DOT[decision]}`}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
-          )}
 
-          <div className="flex items-center justify-center gap-3 px-4 py-4">
-            <button
-              type="button"
-              onClick={() => moveTo(reviewIndex! - 1, -1)}
-              className="flex items-center gap-1.5 rounded-full border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10"
-            >
-              ← <span className="rounded bg-white/10 px-1 text-[10px]">A</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => decideCurrent("red")}
-              className="flex items-center gap-2 rounded-full bg-red-600 px-5 py-2 text-sm font-medium text-white hover:bg-red-700"
-            >
-              Loại <span className="rounded bg-black/20 px-1 text-[10px]">X</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => decideCurrent("yellow")}
-              className="flex items-center gap-2 rounded-full bg-amber-500 px-5 py-2 text-sm font-medium text-white hover:bg-amber-600"
-            >
-              Xem lại <span className="rounded bg-black/20 px-1 text-[10px]">Y</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => decideCurrent("green")}
-              className="flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2 text-sm font-medium text-white hover:bg-emerald-700"
-            >
-              Giữ <span className="rounded bg-black/20 px-1 text-[10px]">K</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => moveTo(reviewIndex! + 1, 1)}
-              className="flex items-center gap-1.5 rounded-full border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-white/10"
-            >
-              <span className="rounded bg-white/10 px-1 text-[10px]">D</span> →
-            </button>
+            {faceCrops.length > 0 && (
+              <div className="flex w-[280px] shrink-0 flex-col border-l border-[#414752] bg-[#1c1b1b]">
+                <div className="flex items-center justify-between border-b border-[#414752] px-6 py-4">
+                  <h3 className="text-xl font-semibold text-[#e5e2e1]">Bảng cận cảnh</h3>
+                </div>
+                <div className="flex flex-col gap-4 overflow-y-auto p-4">
+                  {currentItem.metrics.faces.map((face, index) => (
+                    <div
+                      key={index}
+                      className="relative rounded-[4px] border border-[#414752] bg-[#131313] p-2"
+                    >
+                      <span
+                        className={`absolute -left-2 -top-2 flex size-6 items-center justify-center rounded-full border font-mono text-[10px] ${
+                          face.eyeStatus === "open"
+                            ? "border-[#2e5c41] bg-[#1c3325] text-[#93f5b7]"
+                            : face.eyeStatus === "squint"
+                              ? "border-[#805d00] bg-[#4a3600] text-[#ffb95e]"
+                              : "border-[#414752] bg-[#2a2a2a] text-[#c1c6d4]"
+                        }`}
+                      >
+                        {index + 1}
+                      </span>
+                      {faceCrops[index] && (
+                        <img
+                          src={faceCrops[index]}
+                          alt={`Khuôn mặt ${index + 1}`}
+                          className={`aspect-square w-full rounded-[2px] border object-cover ring-2 ${EYE_RING[face.eyeStatus]}`}
+                        />
+                      )}
+                      <div className="mt-2 flex items-center justify-between text-sm">
+                        <span className="text-[#e5e2e1]">Mắt</span>
+                        <span className="text-[#c1c6d4]">{EYE_LABEL[face.eyeStatus]}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="flex gap-2 overflow-x-auto border-t border-white/10 bg-black/60 px-4 py-3">
-            {displayOrderItems.map((it, idx) => {
-              const path = it.file.relativePath;
-              const decision = decisions[path] ?? "yellow";
-              const isActive = idx === reviewIndex;
-              return (
-                <button
-                  key={path}
-                  ref={isActive ? activeThumbRef : undefined}
-                  type="button"
-                  onClick={() => setReviewIndex(idx)}
-                  className={`relative h-14 w-14 shrink-0 overflow-hidden rounded-md ring-2 transition-opacity ${
-                    isActive
-                      ? "opacity-100 ring-white"
-                      : "opacity-60 ring-transparent hover:opacity-90"
-                  }`}
-                >
-                  {thumbnails[path] && (
-                    <img
-                      src={thumbnails[path]}
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                      className="h-full w-full object-cover"
-                    />
-                  )}
-                  <span
-                    className={`absolute inset-x-0 bottom-0 h-1 ${DECISION_DOT[decision]}`}
-                  />
-                </button>
-              );
-            })}
+          <div className="flex shrink-0 items-center justify-between border-t border-[#414752] bg-[#0e0e0e] px-10 py-2">
+            <div className="flex items-center gap-6">
+              <span className="font-mono text-xs uppercase tracking-[0.6px] text-[#c1c6d4]">Phím tắt</span>
+              <span className="flex items-center gap-1.5 text-sm text-[#c1c6d4]">
+                <kbd className="rounded-[2px] border border-[#414752] bg-[#201f1f] px-1.5 py-0.5 font-mono text-sm text-[#e5e2e1]">K</kbd>
+                Giữ
+              </span>
+              <span className="flex items-center gap-1.5 text-sm text-[#c1c6d4]">
+                <kbd className="rounded-[2px] border border-[#414752] bg-[#201f1f] px-1.5 py-0.5 font-mono text-sm text-[#e5e2e1]">Y</kbd>
+                Xem lại
+              </span>
+              <span className="flex items-center gap-1.5 text-sm text-[#c1c6d4]">
+                <kbd className="rounded-[2px] border border-[#414752] bg-[#201f1f] px-1.5 py-0.5 font-mono text-sm text-[#e5e2e1]">X</kbd>
+                Loại
+              </span>
+              <span className="flex items-center gap-1.5 text-sm text-[#c1c6d4]">
+                <kbd className="rounded-[2px] border border-[#414752] bg-[#201f1f] px-1.5 py-0.5 font-mono text-sm text-[#e5e2e1]">A</kbd>/
+                <kbd className="rounded-[2px] border border-[#414752] bg-[#201f1f] px-1.5 py-0.5 font-mono text-sm text-[#e5e2e1]">D</kbd>
+                Ảnh trước/tiếp
+              </span>
+            </div>
+            <span className="font-mono text-xs uppercase tracking-[0.6px] text-[#c1c6d4]">
+              Đã chọn: {counts.keep} · Tổng: {counts.total}
+            </span>
           </div>
         </div>
       )}

@@ -39,12 +39,18 @@ Backend cho LensProof SaaS. Giai đoạn hiện tại: khởi tạo project + k�
    Get-Content -Raw db/migrations/001_initial_schema.sql | docker compose exec -T db psql -v ON_ERROR_STOP=1 -U lensproof -d lensproof
    ```
 
-4. Chạy server ở chế độ dev (tự reload khi sửa code):
+4. Tải trọng số model AI Face Search (bắt buộc, chỉ cần chạy 1 lần — file binary không
+   commit vào git):
+   ```
+   npm run setup:face-models
+   ```
+
+5. Chạy server ở chế độ dev (tự reload khi sửa code):
    ```
    npm run dev
    ```
 
-5. Kiểm tra server + DB đã kết nối chưa:
+6. Kiểm tra server + DB đã kết nối chưa:
    ```
    curl http://localhost:3000/api/health
    ```
@@ -58,7 +64,7 @@ Backend cho LensProof SaaS. Giai đoạn hiện tại: khởi tạo project + k�
    }
    ```
 
-6. Chạy test backend:
+7. Chạy test backend:
    ```
    npm test
    ```
@@ -87,6 +93,24 @@ Giai đoạn quản lý album hiện có:
 Khi tạo album, gửi `pin` dạng chuỗi số 4–12 ký tự. PIN chỉ được lưu dưới
 dạng hash, không xuất hiện trong response API.
 
+Giai đoạn 4 (xuất filename + ZIP) hiện có:
+
+- `POST /api/albums/:albumId/filename-export`: tổng hợp ảnh đã được khách
+   chọn hoặc có ghi chú, trả về `search_string` (nối bằng " OR ", dán thẳng
+   vào thanh tìm kiếm Lightroom/Photoshop lọc theo Filename) — mỗi lần gọi
+   ghi thêm 1 dòng lịch sử vào `filename_exports`.
+- `POST /api/albums/:albumId/zip-upload`: PTG upload 1 file .zip ảnh đã hậu
+   kỳ (tùy chọn, tối đa 2 GB), lưu lên Drive và gắn vào album
+   (`zip_drive_file_id`) làm nguồn ZIP ưu tiên khi khách tải.
+- `PATCH /api/albums/:albumId` hỗ trợ thêm field `download_zip_unlocked`
+   ("mở khóa tải" ZIP cho khách).
+
+Khách tải ZIP qua `GET /api/public/albums/:albumId/download-zip` (yêu cầu
+`download_zip_unlocked = true`). Nếu album có `zip_drive_file_id` (PTG đã
+upload bản hậu kỳ), backend proxy nguyên file đó; nếu chưa, backend tự nén
+ZIP "động" (streaming, không buffer cả album vào RAM) từ ảnh GỐC đã được ít
+nhất 1 khách trong album chọn.
+
 Upload ảnh hiện có:
 
 - `GET /api/albums/:albumId/photos`: liệt kê metadata ảnh trong album.
@@ -102,7 +126,27 @@ Client Portal hiện có:
 - `POST /api/public/albums/:albumId/verify-pin`: gửi `pin`, `name`, `phone`
    để tạo cookie `client_session_token`.
 - `GET /api/public/albums/:albumId`: lấy thông tin album sau khi xác thực.
+- `GET /api/public/albums/:albumId/download-zip`: tải ZIP ảnh hoàn thiện
+   (Bước 4.2, xem chi tiết nguồn ảnh ở trên).
 - `POST /api/public/albums/client/logout`: xóa phiên khách hàng.
+
+AI Face Search (Giai đoạn 3) hiện có:
+
+- `GET /api/public/albums/:albumId/face-search/consent`: trạng thái đồng ý
+   xử lý khuôn mặt của khách đang đăng nhập. `feature_available=false` nếu
+   album (hoặc riêng khách đó) bị đánh dấu vị thành niên — trường hợp này
+   tính năng bị khóa hẳn, chưa có quy trình xin đồng ý qua phụ huynh.
+- `POST /api/public/albums/:albumId/face-search/consent`: ghi nhận đồng ý
+   (`{ "agree": true }`, bắt buộc, không được tick sẵn phía FE).
+- `POST /api/public/albums/:albumId/face-search`: upload ảnh selfie (field
+   `file`, JPG/JPEG tối đa 8 MB), trả về danh sách ảnh trong album có khuôn
+   mặt khớp kèm `similarity`. Yêu cầu đã đồng ý ở trên trước đó. Ảnh
+   selfie/embedding của khách KHÔNG được lưu lại — chỉ log số liệu vào
+   `client_selfie_searches`.
+
+Ảnh PTG upload (`POST /api/albums/:albumId/photos`) tự động trích embedding
+khuôn mặt (nếu có) và lưu vào `photo_face_embeddings` — chạy model
+face-api.js server-side, xem bước "Tải trọng số model" ở trên.
 
 Nếu API Drive trả lỗi `DRIVE_SCOPE_REQUIRED`, hãy mở lại
 `http://localhost:3000/api/auth/google`, đăng nhập lại và chấp nhận quyền

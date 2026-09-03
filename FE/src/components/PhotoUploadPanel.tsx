@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
@@ -25,10 +25,17 @@ export interface UploadQueueItem {
   isBestInCluster?: boolean;
 }
 
+export interface PhotoUploadPanelHandle {
+  /** Mở hộp thoại chọn file hệ thống (dùng cho nút "Tải ảnh lên" ở header). */
+  openFileDialog: () => void;
+  /** Thêm file vào hàng đợi upload (dùng cho kéo-thả trực tiếp vào lưới ảnh). */
+  enqueueFiles: (files: FileList | File[]) => void;
+}
+
 interface PhotoUploadPanelProps {
   albumId: string;
   preset: CompressionPreset;
-  onUploaded: (photo: Photo, thumbnailUrl: string) => void;
+  onUploaded: (photo: Photo) => void;
   /** Bước 1.6 — danh sách ảnh "giữ" từ trang duyệt culling, tự động đưa vào hàng đợi
    * upload ngay khi panel này mount (ví dụ sau khi điều hướng từ AlbumCullPage về). */
   initialItems?: UploadQueueItem[];
@@ -43,12 +50,10 @@ async function compressForPreset(file: File, preset: CompressionPreset) {
   });
 }
 
-export default function PhotoUploadPanel({
-  albumId,
-  preset,
-  onUploaded,
-  initialItems,
-}: PhotoUploadPanelProps) {
+function PhotoUploadPanel(
+  { albumId, preset, onUploaded, initialItems }: PhotoUploadPanelProps,
+  ref: React.Ref<PhotoUploadPanelHandle>
+) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<UploadItem[]>([]);
   const consumedInitialItems = useRef(false);
@@ -58,6 +63,7 @@ export default function PhotoUploadPanel({
     if (!initialItems || initialItems.length === 0) return;
     consumedInitialItems.current = true;
     initialItems.forEach((item) => uploadOne(item));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialItems]);
 
   function updateItem(id: string, patch: Partial<UploadItem>) {
@@ -75,7 +81,6 @@ export default function PhotoUploadPanel({
 
     try {
       const compressed = await compressForPreset(file, preset);
-      const thumbnailUrl = URL.createObjectURL(compressed);
       updateItem(id, { status: "uploading", progress: 0 });
 
       const formData = new FormData();
@@ -99,7 +104,7 @@ export default function PhotoUploadPanel({
       );
 
       updateItem(id, { status: "done", progress: 100 });
-      onUploaded(data.photo, thumbnailUrl);
+      onUploaded(data.photo);
     } catch (err) {
       updateItem(id, {
         status: "error",
@@ -108,9 +113,20 @@ export default function PhotoUploadPanel({
     }
   }
 
+  function enqueueFiles(fileList: FileList | File[]) {
+    Array.from(fileList)
+      .filter((file) => file.type === "image/jpeg")
+      .forEach((file) => uploadOne({ file }));
+  }
+
+  useImperativeHandle(ref, () => ({
+    openFileDialog: () => inputRef.current?.click(),
+    enqueueFiles,
+  }));
+
   function handleFilesSelected(fileList: FileList | null) {
     if (!fileList) return;
-    Array.from(fileList).forEach((file) => uploadOne({ file }));
+    enqueueFiles(fileList);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -122,7 +138,7 @@ export default function PhotoUploadPanel({
         multiple
         accept="image/jpeg"
         onChange={(e) => handleFilesSelected(e.target.files)}
-        className="block text-sm text-slate-600 file:mr-4 file:rounded-md file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-800"
+        className="sr-only"
       />
 
       {items.length > 0 && (
@@ -130,23 +146,23 @@ export default function PhotoUploadPanel({
           {items.map((item) => (
             <li
               key={item.id}
-              className="rounded-md border border-slate-200 bg-white p-3"
+              className="rounded-[4px] border border-[#43474f] bg-[#1c1b1b] p-3"
             >
               <div className="flex items-center justify-between text-sm">
-                <span className="truncate text-slate-700">
+                <span className="truncate text-[#e5e2e1]">
                   {item.fileName}
                 </span>
-                <span className="shrink-0 text-xs text-slate-500">
+                <span className="shrink-0 text-xs text-[#c1c6d4]">
                   {item.status === "compressing" && "Đang nén..."}
                   {item.status === "uploading" && `${item.progress}%`}
                   {item.status === "done" && "Hoàn tất"}
                   {item.status === "error" && "Lỗi"}
                 </span>
               </div>
-              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#2a2a2a]">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    item.status === "error" ? "bg-red-500" : "bg-slate-900"
+                    item.status === "error" ? "bg-red-500" : "bg-[#a9c7ff]"
                   }`}
                   style={{
                     width: `${
@@ -160,7 +176,7 @@ export default function PhotoUploadPanel({
                 />
               </div>
               {item.error && (
-                <p className="mt-1 text-xs text-red-600">{item.error}</p>
+                <p className="mt-1 text-xs text-red-400">{item.error}</p>
               )}
             </li>
           ))}
@@ -169,3 +185,5 @@ export default function PhotoUploadPanel({
     </div>
   );
 }
+
+export default forwardRef(PhotoUploadPanel);

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { isAxiosError } from "axios";
+import { useSearchParams } from "react-router-dom";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
@@ -21,7 +22,10 @@ interface PublicPhoto {
   is_best_in_cluster: boolean;
 }
 
+type FilterKey = "all" | "suggested" | "bursts";
+
 const GRID_GAP_PX = 12;
+const PAGE_SIZE = 24;
 
 function useColumnCount(containerWidth: number): number {
   if (containerWidth === 0) return 2;
@@ -30,12 +34,27 @@ function useColumnCount(containerWidth: number): number {
   return 4;
 }
 
+function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "vừa xong";
+  if (minutes < 60) return `${minutes} phút trước`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  const days = Math.floor(hours / 24);
+  return `${days} ngày trước`;
+}
+
 export default function AlbumGalleryPage() {
   const { album, refetch } = useClientAlbum();
   const expired = useIsAlbumExpired();
+  const [searchParams] = useSearchParams();
+  const showLikedOnly = searchParams.get("view") === "liked";
   const [photos, setPhotos] = useState<PublicPhoto[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const [openPhotoId, setOpenPhotoId] = useState<string | null>(null);
   const [compareMode, setCompareMode] = useState(false);
@@ -91,27 +110,67 @@ export default function AlbumGalleryPage() {
     setOpenPhotoId(photo.id);
   }
 
+  const filteredPhotos = useMemo(() => {
+    let result = photos;
+    if (showLikedOnly) result = result.filter((p) => selected.has(p.id));
+    if (filter === "suggested") result = result.filter((p) => p.is_best_in_cluster);
+    if (filter === "bursts") result = result.filter((p) => p.burst_cluster_id !== null);
+    return result;
+  }, [photos, showLikedOnly, filter, selected]);
+
+  // Bước — chỉ render `visibleCount` ảnh đầu, tự tăng dần khi khách lướt gần tới cuối lưới
+  // (IntersectionObserver theo dõi sentinel cuối trang), thay vì luôn virtualize toàn bộ
+  // hàng nghìn ảnh cùng lúc ngay khi vào trang.
+  const visiblePhotos = filteredPhotos.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredPhotos.length;
+
+  // Dùng ref dạng callback (thay useRef) vì sentinel chỉ mount khi hasMore === true — nếu
+  // dùng useRef + effect deps rỗng, observer sẽ được gắn (hoặc không) đúng 1 lần lúc mount,
+  // có thể là lúc sentinel chưa tồn tại, và không bao giờ gắn lại được nữa.
+  const [sentinelNode, setSentinelNode] = useState<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!sentinelNode || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((c) => c + PAGE_SIZE);
+        }
+      },
+      { rootMargin: "800px 0px" }
+    );
+    observer.observe(sentinelNode);
+    return () => observer.disconnect();
+  }, [sentinelNode, hasMore]);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [showLikedOnly, filter]);
+
   // Bước 2.4 — virtualize theo hàng (chỉ render vài hàng quanh viewport) để album vài nghìn
   // ảnh không mount toàn bộ <img> cùng lúc. useWindowVirtualizer dùng scroll của window nên
   // trải nghiệm cuộn trang không đổi so với lưới CSS thường trước đây.
-  const containerRef = useRef<HTMLDivElement>(null);
+  // Bước fix — div này chỉ mount SAU KHI ảnh tải xong (nhánh rỗng render trước đó không có
+  // div để đo), nên dùng ref dạng callback thay vì useRef+effect deps rỗng: effect deps rỗng
+  // chạy đúng 1 lần lúc mount, khi div còn chưa tồn tại, khiến ResizeObserver không bao giờ
+  // được gắn và containerWidth mãi mãi bằng 0 (lưới ảnh kẹt ở fallback 2 cột).
+  const [containerNode, setContainerNode] = useState<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+    if (!containerNode) return;
     const observer = new ResizeObserver((entries) => {
       setContainerWidth(entries[0].contentRect.width);
     });
-    observer.observe(el);
+    observer.observe(containerNode);
     return () => observer.disconnect();
-  }, []);
+  }, [containerNode]);
 
   const columns = useColumnCount(containerWidth);
   const itemSize =
     containerWidth > 0 ? (containerWidth - GRID_GAP_PX * (columns - 1)) / columns : 0;
   const rowHeight = itemSize > 0 ? itemSize + GRID_GAP_PX : 160;
-  const rowCount = Math.ceil(photos.length / columns);
+  const rowCount = Math.ceil(visiblePhotos.length / columns);
 
   const rowVirtualizer = useWindowVirtualizer({
     count: rowCount,
@@ -124,136 +183,187 @@ export default function AlbumGalleryPage() {
     [photos, compareSelection]
   );
 
+  const lastUpdatedAt = useMemo(() => {
+    if (photos.length === 0) return null;
+    return photos.reduce(
+      (latest, p) => (new Date(p.created_at) > new Date(latest) ? p.created_at : latest),
+      photos[0].created_at
+    );
+  }, [photos]);
+
   if (error) {
     return (
-      <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+      <p className="rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
         {error}
       </p>
     );
   }
 
   if (!album) {
-    return <p className="text-sm text-slate-500">Đang tải...</p>;
+    return <p className="text-sm text-[#c1c6d4]">Đang tải...</p>;
   }
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-slate-900">{album.name}</h1>
-        <button
-          type="button"
-          onClick={() => {
-            setCompareMode((prev) => !prev);
-            setCompareSelection([]);
-          }}
-          className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
-            compareMode
-              ? "border-slate-900 bg-slate-900 text-white"
-              : "border-slate-300 text-slate-700 hover:bg-slate-50"
-          }`}
-        >
-          {compareMode ? "Đang chọn ảnh để so sánh" : "So sánh 2 ảnh"}
-        </button>
+      <h1 className="text-[32px] font-semibold tracking-[-0.32px] text-[#e5e2e1]">
+        {album.name}
+      </h1>
+      <p className="mt-2 max-w-2xl text-base text-[#c1c6d4]">
+        Duyệt qua tất cả các khoảnh khắc từ sự kiện. Sử dụng công cụ lọc để tìm kiếm dễ dàng hơn.
+      </p>
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-[4px] border border-[#43474f] bg-[#1c1b1b] px-5 py-4">
+        <div>
+          <p className="flex items-center gap-2 text-sm font-semibold text-[#e5e2e1]">
+            🖼 Tổng quan sự kiện
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-4 text-sm text-[#c1c6d4]">
+            <span>📷 {photos.length} Ảnh</span>
+            {lastUpdatedAt && <span>🕐 Cập nhật {formatRelativeTime(lastUpdatedAt)}</span>}
+            <span>❤️ Đã chọn: {selected.size}</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as FilterKey)}
+            className="rounded-[4px] border border-[#43474f] bg-[#131313] px-3 py-2 text-sm text-[#e5e2e1] focus:outline-none focus:ring-1 focus:ring-[#a9c7ff]"
+          >
+            <option value="all">Tất cả ảnh</option>
+            <option value="suggested">Ảnh gợi ý AI</option>
+            <option value="bursts">Cụm ảnh giống nhau</option>
+          </select>
+          {album.download_zip_unlocked && (
+            <a
+              href={`${import.meta.env.VITE_API_BASE_URL}/api/public/albums/${albumId}/download-zip`}
+              className="rounded-[4px] border border-[#2d6a3f] bg-[#1a3d24] px-3 py-2 text-sm font-medium text-[#86e8a8] hover:bg-[#204d2c]"
+            >
+              Tải ZIP ảnh hoàn thiện
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setCompareMode((prev) => !prev);
+              setCompareSelection([]);
+            }}
+            className={`rounded-[4px] border px-3 py-2 text-sm font-medium ${
+              compareMode
+                ? "border-[#a9c7ff] bg-[#a9c7ff] text-white"
+                : "border-[#43474f] text-[#e5e2e1] hover:bg-[#2a2a2a]"
+            }`}
+          >
+            {compareMode ? "Đang chọn ảnh để so sánh" : "So sánh 2 ảnh"}
+          </button>
+        </div>
       </div>
 
       {compareMode && compareSelection.length < 2 && (
-        <div className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+        <div className="mt-3 rounded-[4px] border border-[#43474f] bg-[#1c1b1b] px-3 py-2 text-sm text-[#c1c6d4]">
           Chọn 2 ảnh ({compareSelection.length}/2 đã chọn) — công cụ so sánh sẽ tự mở khi
           chọn đủ 2 ảnh.
         </div>
       )}
 
-      {photos.length === 0 ? (
-        <p className="mt-6 text-sm text-slate-500">
-          Chưa có ảnh nào trong album.
+      {filteredPhotos.length === 0 ? (
+        <p className="mt-6 text-sm text-[#c1c6d4]">
+          {showLikedOnly ? "Bạn chưa thả tim ảnh nào." : "Chưa có ảnh nào trong album."}
         </p>
       ) : (
-        <div
-          ref={containerRef}
-          className="relative mt-6"
-          style={{ height: rowVirtualizer.getTotalSize() }}
-        >
-          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-            const rowPhotos = photos.slice(
-              virtualRow.index * columns,
-              virtualRow.index * columns + columns
-            );
-            return (
-              <div
-                key={virtualRow.key}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: virtualRow.size,
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
-                className="flex gap-3"
-              >
-                {rowPhotos.map((photo) => (
-                  <div
-                    key={photo.id}
-                    style={{ width: itemSize || undefined }}
-                    className="relative shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleCardClick(photo)}
-                      className="block w-full"
+        <>
+          <div
+            ref={setContainerNode}
+            className="relative mt-6"
+            style={{ height: rowVirtualizer.getTotalSize() }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const rowPhotos = visiblePhotos.slice(
+                virtualRow.index * columns,
+                virtualRow.index * columns + columns
+              );
+              return (
+                <div
+                  key={virtualRow.key}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: virtualRow.size,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                  className="flex gap-3"
+                >
+                  {rowPhotos.map((photo) => (
+                    <div
+                      key={photo.id}
+                      style={{ width: itemSize || undefined }}
+                      className="relative shrink-0 overflow-hidden rounded-[4px] border border-[#43474f] bg-[#1c1b1b]"
                     >
-                      <img
-                        src={`${import.meta.env.VITE_API_BASE_URL}/api/public/albums/${albumId}/photos/${photo.id}/view?size=thumb`}
-                        alt={photo.original_base_filename}
-                        loading="lazy"
-                        decoding="async"
-                        className="aspect-square w-full object-cover"
-                      />
-                    </button>
-
-                    {photo.burst_cluster_id &&
-                      (photo.is_best_in_cluster ? (
-                        <span className="absolute left-2 top-2 rounded bg-amber-500/90 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                          ✨ Gợi ý
-                        </span>
-                      ) : (
-                        <span className="absolute left-2 top-2 rounded bg-slate-900/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                          Cụm ảnh giống
-                        </span>
-                      ))}
-
-                    {compareMode ? (
-                      <span
-                        className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold shadow ${
-                          compareSelection.includes(photo.id)
-                            ? "bg-slate-900 text-white"
-                            : "bg-white/90 text-slate-500"
-                        }`}
-                      >
-                        {compareSelection.includes(photo.id) ? "✓" : "+"}
-                      </span>
-                    ) : (
                       <button
                         type="button"
-                        onClick={() => toggleHeart(photo.id)}
-                        disabled={expired}
-                        aria-label="Thả tim"
-                        title={expired ? "Đã hết hạn chọn ảnh" : "Thả tim"}
-                        className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full text-lg shadow disabled:cursor-not-allowed disabled:opacity-50 ${
-                          selected.has(photo.id)
-                            ? "bg-red-500 text-white"
-                            : "bg-white/90 text-slate-500"
-                        }`}
+                        onClick={() => handleCardClick(photo)}
+                        className="block w-full"
                       >
-                        ♥
+                        <img
+                          src={`${import.meta.env.VITE_API_BASE_URL}/api/public/albums/${albumId}/photos/${photo.id}/view?size=thumb`}
+                          alt={photo.original_base_filename}
+                          loading="lazy"
+                          decoding="async"
+                          className="aspect-square w-full object-cover"
+                        />
                       </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-        </div>
+
+                      {photo.burst_cluster_id &&
+                        (photo.is_best_in_cluster ? (
+                          <span className="absolute left-2 top-2 rounded bg-[#4a3600]/90 px-1.5 py-0.5 text-[10px] font-medium text-[#ffddb8]">
+                            ✨ Gợi ý
+                          </span>
+                        ) : (
+                          <span className="absolute left-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-[#e5e2e1]">
+                            Cụm ảnh giống
+                          </span>
+                        ))}
+
+                      {compareMode ? (
+                        <span
+                          className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold shadow ${
+                            compareSelection.includes(photo.id)
+                              ? "bg-[#a9c7ff] text-white"
+                              : "bg-black/50 text-[#e5e2e1]"
+                          }`}
+                        >
+                          {compareSelection.includes(photo.id) ? "✓" : "+"}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => toggleHeart(photo.id)}
+                          disabled={expired}
+                          aria-label="Thả tim"
+                          title={expired ? "Đã hết hạn chọn ảnh" : "Thả tim"}
+                          className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full text-lg shadow disabled:cursor-not-allowed disabled:opacity-50 ${
+                            selected.has(photo.id)
+                              ? "bg-red-500 text-white"
+                              : "bg-black/50 text-[#e5e2e1]"
+                          }`}
+                        >
+                          {selected.has(photo.id) ? "♥" : "♡"}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+
+          {hasMore && (
+            <div ref={setSentinelNode} className="mt-6 flex justify-center py-4">
+              <span className="text-sm text-[#c1c6d4]">Đang tải thêm ảnh...</span>
+            </div>
+          )}
+        </>
       )}
 
       {openPhotoId && albumId && (
@@ -263,6 +373,16 @@ export default function AlbumGalleryPage() {
           photoName={
             photos.find((p) => p.id === openPhotoId)?.original_base_filename ?? ""
           }
+          albumName={album.name}
+          currentIndex={filteredPhotos.findIndex((p) => p.id === openPhotoId)}
+          totalCount={filteredPhotos.length}
+          onNavigate={(direction) => {
+            const idx = filteredPhotos.findIndex((p) => p.id === openPhotoId);
+            const next = filteredPhotos[idx + direction];
+            if (next) setOpenPhotoId(next.id);
+          }}
+          isSelected={selected.has(openPhotoId)}
+          onToggleSelect={() => toggleHeart(openPhotoId)}
           onClose={() => setOpenPhotoId(null)}
         />
       )}
@@ -272,6 +392,8 @@ export default function AlbumGalleryPage() {
           albumId={albumId}
           left={compareTargets[0]}
           right={compareTargets[1]}
+          isSelected={(id) => selected.has(id)}
+          onToggleSelect={toggleHeart}
           onClose={() => {
             setCompareMode(false);
             setCompareSelection([]);

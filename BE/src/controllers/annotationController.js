@@ -18,4 +18,33 @@ async function listForAlbum(req, res, next) {
   }
 }
 
-module.exports = { listForAlbum };
+// Bước — PTG đánh dấu 1 yêu cầu chỉnh sửa của khách là đã xử lý ("Đánh dấu hoàn tất") hoặc
+// mở lại thành chưa xử lý.
+async function updateStatus(req, res, next) {
+  try {
+    const { status } = req.body || {};
+    if (!["pending", "done"].includes(status)) {
+      const error = new Error("status chỉ được là pending hoặc done");
+      error.statusCode = 400;
+      error.code = "INVALID_ANNOTATION_STATUS";
+      throw error;
+    }
+
+    const annotation = await annotationModel.updateStatus(
+      req.params.annotationId,
+      req.params.albumId,
+      req.photographer.photographerId,
+      status
+    );
+    if (!annotation) {
+      return res
+        .status(404)
+        .json({ error: "ANNOTATION_NOT_FOUND", message: "Không tìm thấy yêu cầu chỉnh sửa" });
+    }
+    res.json({ annotation });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = { listForAlbum, updateStatus };

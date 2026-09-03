@@ -3,3 +3,7 @@ node_modules/
 npm-debug.log
 *.log
 .DS_Store
+
+# Trọng số model face-api (Bước 3.2) — file binary tải qua
+# `npm run setup:face-models`, không commit vào git.
+models/face-api/

@@ -3,7 +3,8 @@ const pool = require("../config/db");
 const ALBUM_COLUMNS = `
   id, photographer_id, name, drive_folder_id, pin_enabled, max_selectable_photos,
   selection_deadline, is_locked, watermark_enabled, compression_preset_id,
-  download_zip_unlocked, zip_drive_file_id, is_minor_album, status, created_at, updated_at
+  download_zip_unlocked, zip_drive_file_id, is_minor_album, status, cover_photo_id,
+  created_at, updated_at
 `;
 
 async function listByPhotographerId(photographerId) {

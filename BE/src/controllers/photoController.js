@@ -3,8 +3,10 @@ const albumModel = require("../models/albumModel");
 const photoModel = require("../models/photoModel");
 const sceneModel = require("../models/sceneModel");
 const burstClusterModel = require("../models/burstClusterModel");
+const photoFaceEmbeddingModel = require("../models/photoFaceEmbeddingModel");
 const redis = require("../config/redis");
 const { resolveSizePreset, resizeToLongEdge } = require("../services/thumbnailService");
+const { detectFaces } = require("../services/faceEmbeddingService");
 const {
   uploadJpeg,
   deleteFile,
@@ -143,6 +145,21 @@ async function upload(req, res, next) {
 
     if (burstClusterId && isBestInCluster) {
       await burstClusterModel.setBestPhoto(burstClusterId, photo.id);
+    }
+
+    // Bước 3.2 — trích embedding khuôn mặt ngay lúc PTG upload, dùng cho AI Face Search
+    // (Bước 3.3). Best-effort: ảnh không có mặt người, hoặc lỗi model, không được làm hỏng
+    // luồng upload chính (ảnh vẫn đã lưu thành công lên Drive + DB) — chỉ log lỗi lại.
+    try {
+      const faces = await detectFaces(req.file.buffer);
+      if (faces.length > 0) {
+        await photoFaceEmbeddingModel.createEmbeddingsForPhoto(photo.id, faces);
+      }
+    } catch (faceError) {
+      console.error(
+        `Trích embedding khuôn mặt thất bại cho photo ${photo.id}:`,
+        faceError.message
+      );
     }
 
     res.status(201).json({ photo });

@@ -13,6 +13,7 @@ export interface Album {
   zip_drive_file_id: string | null;
   is_minor_album: boolean;
   status: "active" | "archived";
+  cover_photo_id: string | null;
   created_at: string;
   updated_at: string;
 }

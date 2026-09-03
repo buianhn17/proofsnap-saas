@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const photoController = require("../controllers/photoController");
+const photoNotesController = require("../controllers/photoNotesController");
 const { requireAuth } = require("../middlewares/authMiddleware");
 
 const router = express.Router({ mergeParams: true });
@@ -87,5 +88,57 @@ router
  *         description: Không tìm thấy ảnh hoặc album
  */
 router.get("/:photoId/view", requireAuth, photoController.view);
+
+/**
+ * @swagger
+ * /api/albums/{albumId}/photos/{photoId}/notes:
+ *   post:
+ *     summary: Thêm ghi chú nội bộ hoặc phản hồi gửi khách cho 1 ảnh (trang Yêu cầu chỉnh sửa)
+ *     tags: [Photos]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *       - in: path
+ *         name: photoId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       201:
+ *         description: Ghi chú đã tạo
+ *       400:
+ *         description: note_text không hợp lệ
+ *       401:
+ *         description: Chưa đăng nhập
+ *       404:
+ *         description: Không tìm thấy ảnh hoặc album
+ */
+router.post("/:photoId/notes", requireAuth, photoNotesController.addNote);
+
+/**
+ * @swagger
+ * /api/albums/{albumId}/photos/{photoId}/complete-edits:
+ *   post:
+ *     summary: Đánh dấu toàn bộ yêu cầu chỉnh sửa của 1 ảnh là đã xử lý ("Hoàn tất chỉnh sửa")
+ *     tags: [Photos]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *       - in: path
+ *         name: photoId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Số lượng annotation vừa được đánh dấu hoàn tất
+ *       401:
+ *         description: Chưa đăng nhập
+ *       404:
+ *         description: Không tìm thấy ảnh hoặc album
+ */
+router.post("/:photoId/complete-edits", requireAuth, photoNotesController.completeEdits);
 
 module.exports = router;

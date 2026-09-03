@@ -1,8 +1,12 @@
+const path = require("node:path");
 const bcrypt = require("bcryptjs");
 const albumModel = require("../models/albumModel");
+const photoModel = require("../models/photoModel");
 const {
   createAlbumFolder,
   deleteFolder,
+  uploadZipFile,
+  deleteFile,
 } = require("../services/googleDriveService");
 
 const ALLOWED_UPDATE_FIELDS = new Set([
@@ -15,6 +19,10 @@ const ALLOWED_UPDATE_FIELDS = new Set([
   "is_minor_album",
   "is_locked",
   "status",
+  // Bước 4.2 — "mở khóa tải" ZIP cho khách. zip_drive_file_id KHÔNG nằm trong whitelist này
+  // (chỉ set được qua uploadZip() bên dưới, phải đi kèm 1 file .zip thật upload lên Drive).
+  "download_zip_unlocked",
+  "cover_photo_id",
 ]);
 
 function getPhotographerId(req) {
@@ -196,7 +204,7 @@ async function update(req, res, next) {
     if (fields.compression_preset_id !== undefined) {
       fields.compression_preset_id = validatePreset(fields.compression_preset_id);
     }
-    for (const key of ["watermark_enabled", "is_minor_album", "is_locked"]) {
+    for (const key of ["watermark_enabled", "is_minor_album", "is_locked", "download_zip_unlocked"]) {
       if (fields[key] !== undefined) validateBoolean(fields[key], key);
     }
     if (fields.status !== undefined && !["active", "archived"].includes(fields.status)) {
@@ -205,11 +213,79 @@ async function update(req, res, next) {
       error.code = "INVALID_ALBUM_STATUS";
       throw error;
     }
+    if (fields.cover_photo_id !== undefined && fields.cover_photo_id !== null) {
+      const photo = await photoModel.findByAlbumAndId(current.id, fields.cover_photo_id);
+      if (!photo) {
+        const error = new Error("Ảnh được chọn làm đại diện không thuộc album này");
+        error.statusCode = 400;
+        error.code = "INVALID_COVER_PHOTO";
+        throw error;
+      }
+    }
     delete fields.pin;
 
     const album = await albumModel.updateAlbum(req.params.albumId, photographerId, fields);
     res.json({ album });
   } catch (error) {
+    next(error);
+  }
+}
+
+// Bước 4.2 — PTG upload 1 file .zip ảnh đã hậu kỳ (retouch xong ở Lightroom/Photoshop theo
+// đúng chuỗi tên file từ Bước 4.1), lưu lên Drive và gắn vào album làm nguồn ZIP ưu tiên khi
+// khách tải (xem clientController.downloadZip). Album CHƯA làm bước hậu kỳ riêng thì bỏ qua
+// endpoint này — khách vẫn tải được ZIP tự nén từ ảnh gốc đã chọn khi PTG mở khóa tải.
+async function uploadZip(req, res, next) {
+  let driveFile;
+  try {
+    if (!req.file) {
+      const error = new Error("Cần gửi một file .zip trong field 'file'");
+      error.statusCode = 400;
+      error.code = "MISSING_ZIP_FILE";
+      throw error;
+    }
+    const isZip = path.extname(req.file.originalname).toLowerCase() === ".zip";
+    const hasZipSignature = req.file.buffer.length >= 4
+      && req.file.buffer[0] === 0x50
+      && req.file.buffer[1] === 0x4b
+      && (req.file.buffer[2] === 0x03 || req.file.buffer[2] === 0x05 || req.file.buffer[2] === 0x07);
+    if (!isZip || !hasZipSignature) {
+      const error = new Error("Chỉ chấp nhận file .zip hợp lệ");
+      error.statusCode = 400;
+      error.code = "INVALID_ZIP_FILE";
+      throw error;
+    }
+
+    const photographerId = getPhotographerId(req);
+    const album = await albumModel.findByIdForPhotographer(req.params.albumId, photographerId);
+    if (!album) {
+      return res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
+    }
+
+    driveFile = await uploadZipFile(photographerId, album.drive_folder_id, req.file);
+    const updated = await albumModel.updateAlbum(album.id, photographerId, {
+      zip_drive_file_id: driveFile.id,
+    });
+
+    // Dọn file .zip cũ trên Drive nếu PTG re-upload bản mới — best-effort, không chặn
+    // response nếu xóa lỗi (ví dụ file cũ đã bị xóa tay từ trước).
+    if (album.zip_drive_file_id && album.zip_drive_file_id !== driveFile.id) {
+      try {
+        await deleteFile(photographerId, album.zip_drive_file_id);
+      } catch (cleanupError) {
+        console.error("Không thể xóa file .zip cũ trên Drive:", cleanupError.message);
+      }
+    }
+
+    res.status(201).json({ album: updated });
+  } catch (error) {
+    if (driveFile?.id) {
+      try {
+        await deleteFile(getPhotographerId(req), driveFile.id);
+      } catch (cleanupError) {
+        console.error("Không thể rollback file .zip trên Drive:", cleanupError.message);
+      }
+    }
     next(error);
   }
 }
@@ -226,4 +302,4 @@ async function archive(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, create, update, archive };
+module.exports = { list, getOne, create, update, archive, uploadZip };

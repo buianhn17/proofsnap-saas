@@ -23,6 +23,8 @@ export interface PublicAlbum {
   watermark_enabled: boolean;
   selection_deadline: string | null;
   is_locked: boolean;
+  // Bước 4.2 — true khi PTG đã "mở khóa tải" ZIP ảnh hoàn thiện cho album này.
+  download_zip_unlocked: boolean;
 }
 
 interface ClientAlbumContextValue {

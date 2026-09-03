@@ -10,6 +10,7 @@ import AlbumDetailPage from "./pages/admin/AlbumDetailPage";
 import AlbumAnnotationsPage from "./pages/admin/AlbumAnnotationsPage";
 import AlbumAccessPage from "./pages/client/AlbumAccessPage";
 import AlbumGalleryPage from "./pages/client/AlbumGalleryPage";
+import FaceSearchPage from "./pages/client/FaceSearchPage";
 import { ClientAlbumProvider } from "./contexts/ClientAlbumContext";
 import DeadlineCountdownBar from "./components/DeadlineCountdownBar";
 
@@ -81,7 +82,10 @@ export const router = createBrowserRouter([
       { index: true, element: <AlbumAccessPage /> },
       {
         element: <ClientAlbumScope />,
-        children: [{ path: "gallery", element: <AlbumGalleryPage /> }],
+        children: [
+          { path: "gallery", element: <AlbumGalleryPage /> },
+          { path: "face-search", element: <FaceSearchPage /> },
+        ],
       },
     ],
   },

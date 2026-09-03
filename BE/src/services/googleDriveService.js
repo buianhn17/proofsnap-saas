@@ -124,6 +124,26 @@ async function deleteFile(photographerId, fileId) {
   await drive.files.delete({ fileId });
 }
 
+// Bước 4.2 — PTG upload lại 1 file .zip đã hậu kỳ (retouch xong, tự đóng gói ở Lightroom),
+// lưu vào đúng folder Drive của album. Khác uploadJpeg() ở mimeType/tên file tùy ý thay vì
+// luôn ép .jpg.
+async function uploadZipFile(photographerId, folderId, file) {
+  const { drive } = await getDriveForPhotographer(photographerId);
+  const response = await drive.files.create({
+    requestBody: {
+      name: file.originalname,
+      parents: [folderId],
+      mimeType: "application/zip",
+    },
+    media: {
+      mimeType: "application/zip",
+      body: Readable.from(file.buffer),
+    },
+    fields: "id, name, mimeType, size, parents, webViewLink",
+  });
+  return response.data;
+}
+
 async function downloadFileStream(photographerId, fileId) {
   const { drive } = await getDriveForPhotographer(photographerId);
   const response = await drive.files.get(
@@ -148,6 +168,7 @@ module.exports = {
   createAlbumFolder,
   deleteFolder,
   uploadJpeg,
+  uploadZipFile,
   deleteFile,
   downloadFileStream,
   downloadFileBuffer,

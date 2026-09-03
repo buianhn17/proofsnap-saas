@@ -1,7 +1,16 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import navDashboard from "../assets/icons/nav-dashboard.svg";
+import navCollection from "../assets/icons/nav-collection.svg";
+import navClients from "../assets/icons/nav-clients.svg";
+import navSettings from "../assets/icons/nav-settings.svg";
 
-const navItems = [{ to: "/admin/albums", label: "Album" }];
+const navItems = [
+  { to: "/admin/dashboard", label: "Bảng điều khiển", icon: navDashboard, enabled: false },
+  { to: "/admin/albums", label: "Bộ sưu tập", icon: navCollection, enabled: true },
+  { to: "/admin/clients", label: "Khách hàng", icon: navClients, enabled: false },
+  { to: "/admin/settings", label: "Cài đặt", icon: navSettings, enabled: false },
+];
 
 export default function AdminLayout() {
   const { photographer, logout } = useAuth();
@@ -12,46 +21,75 @@ export default function AdminLayout() {
     navigate("/admin/login", { replace: true });
   }
 
+  const displayName = photographer?.display_name || photographer?.email || "";
+  const initial = displayName.charAt(0).toUpperCase();
+
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white p-4">
-        <div className="mb-8 px-2 text-lg font-semibold text-slate-900">
-          LensProof
+    <div className="flex min-h-screen bg-[#131313]">
+      <aside className="flex w-[280px] shrink-0 flex-col justify-between border-r border-[#43474f] bg-[#201f1f] py-6 pl-4 pr-[17px]">
+        <div className="flex flex-col gap-1 px-4 pb-16">
+          <h1 className="text-2xl font-bold tracking-[-0.6px] text-[#e5e2e1]">
+            LensProof
+          </h1>
+          <p className="text-xs font-medium tracking-[0.6px] text-[#c1c6d4]">
+            Studio Admin
+          </p>
         </div>
-        <nav className="flex flex-1 flex-col gap-1">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `rounded-md px-3 py-2 text-sm font-medium ${
-                  isActive
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-100"
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
+
+        <nav className="flex flex-1 flex-col gap-2">
+          {navItems.map((item) =>
+            item.enabled ? (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 rounded-md px-4 py-2 text-base ${
+                    isActive
+                      ? "border-r-2 border-[#d6e2ff] bg-[#2a2a2a] text-[#d6e2ff]"
+                      : "text-[#c1c6d4] hover:bg-[#2a2a2a]"
+                  }`
+                }
+              >
+                <img src={item.icon} alt="" className="size-4" />
+                {item.label}
+              </NavLink>
+            ) : (
+              <span
+                key={item.to}
+                title="Sắp ra mắt"
+                className="flex cursor-not-allowed items-center gap-3 rounded-md px-4 py-2 text-base text-[#6b7280]"
+              >
+                <img src={item.icon} alt="" className="size-4 opacity-50" />
+                {item.label}
+              </span>
+            )
+          )}
         </nav>
-        <div className="border-t border-slate-200 pt-4">
-          <p className="truncate px-2 text-sm font-medium text-slate-900">
-            {photographer?.display_name || photographer?.email}
-          </p>
-          <p className="truncate px-2 text-xs text-slate-500">
-            {photographer?.email}
-          </p>
+
+        <div className="border-t border-[#43474f] pt-[25px]">
+          <div className="flex items-center gap-3 px-0">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#353534] text-sm font-semibold text-[#e5e2e1]">
+              {initial || "?"}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-[#e5e2e1]">
+                {displayName}
+              </p>
+              <p className="truncate text-xs text-[#8b919e]">
+                {photographer?.email}
+              </p>
+            </div>
+          </div>
           <button
             type="button"
             onClick={handleLogout}
-            className="mt-2 w-full rounded-md px-3 py-2 text-left text-sm font-medium text-slate-600 hover:bg-slate-100"
+            className="mt-3 w-full rounded-md px-2 py-2 text-left text-sm font-medium text-[#c1c6d4] hover:bg-[#2a2a2a]"
           >
             Đăng xuất
           </button>
         </div>
       </aside>
-      <main className="flex-1 p-6">
+      <main className="flex-1 p-8">
         <Outlet />
       </main>
     </div>

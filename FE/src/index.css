@@ -1,7 +1,9 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap");
 
 body {
   margin: 0;
+  font-family: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
 }
 
 @keyframes fade-in {

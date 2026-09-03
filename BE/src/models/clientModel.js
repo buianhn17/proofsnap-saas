@@ -43,7 +43,8 @@ async function findClientAccountByPhone(phone) {
 
 async function findClient({ albumId, clientAccountId }) {
   const result = await pool.query(
-    "SELECT id, album_id, client_account_id FROM clients WHERE album_id = $1 AND client_account_id = $2",
+    `SELECT id, album_id, client_account_id, face_search_consent_at, is_minor_flagged
+     FROM clients WHERE album_id = $1 AND client_account_id = $2`,
     [albumId, clientAccountId]
   );
   return result.rows[0] || null;
@@ -54,7 +55,7 @@ async function findOrCreateClient({ albumId, clientAccountId }) {
     `INSERT INTO clients (album_id, client_account_id)
      VALUES ($1, $2)
      ON CONFLICT (album_id, client_account_id) DO UPDATE SET album_id = EXCLUDED.album_id
-     RETURNING id, album_id, client_account_id`,
+     RETURNING id, album_id, client_account_id, face_search_consent_at, is_minor_flagged`,
     [albumId, clientAccountId]
   );
   return result.rows[0];
@@ -74,6 +75,66 @@ async function toggleSelection({ clientId, photoId }) {
     [clientId, photoId]
   );
   return { selected: true };
+}
+
+// Bước 3.1 — set mốc đồng ý lần đầu (idempotent: không ghi đè nếu đã đồng ý từ trước, giữ
+// đúng thời điểm đồng ý ĐẦU TIÊN làm bằng chứng). Log chi tiết từng lần xác nhận (kể cả xác
+// nhận lại) nằm ở face_search_consent_logs — xem recordFaceSearchConsentLog bên dưới.
+async function setFaceSearchConsent(clientId) {
+  const result = await pool.query(
+    `UPDATE clients SET face_search_consent_at = COALESCE(face_search_consent_at, now())
+     WHERE id = $1
+     RETURNING id, album_id, client_account_id, face_search_consent_at, is_minor_flagged`,
+    [clientId]
+  );
+  return result.rows[0];
+}
+
+// Bước — khách tự khai độ tuổi ngay trong màn hình xin phép (Trên 18 / Dưới 18 tuổi). Ghi
+// đè is_minor_flagged của CHÍNH client này (không đụng albums.is_minor_album, vốn là mặc
+// định PTG đặt cho cả album) — effectiveIsMinor() ở clientController.js ưu tiên giá trị này
+// nếu khác NULL.
+async function setMinorFlagged(clientId, isMinor) {
+  const result = await pool.query(
+    `UPDATE clients SET is_minor_flagged = $2 WHERE id = $1
+     RETURNING id, album_id, client_account_id, face_search_consent_at, is_minor_flagged`,
+    [clientId, isMinor]
+  );
+  return result.rows[0];
+}
+
+// "Rút lại đồng ý và xóa dữ liệu khuôn mặt của tôi" — chỉ xóa MỐC đồng ý (không có embedding/
+// ảnh selfie nào được lưu trữ để xóa thêm, xem searchByFace ở clientController.js), khách
+// phải đồng ý lại từ đầu nếu muốn dùng lại tính năng.
+async function revokeFaceSearchConsent(clientId) {
+  const result = await pool.query(
+    `UPDATE clients SET face_search_consent_at = NULL WHERE id = $1
+     RETURNING id, album_id, client_account_id, face_search_consent_at, is_minor_flagged`,
+    [clientId]
+  );
+  return result.rows[0] || null;
+}
+
+async function recordFaceSearchConsentLog({ clientId, ipAddress, userAgent }) {
+  await pool.query(
+    `INSERT INTO face_search_consent_logs (client_id, ip_address, user_agent) VALUES ($1, $2, $3)`,
+    [clientId, ipAddress || null, userAgent || null]
+  );
+}
+
+async function findClientById(clientId) {
+  const result = await pool.query(
+    "SELECT id, album_id, client_account_id, face_search_consent_at, is_minor_flagged FROM clients WHERE id = $1",
+    [clientId]
+  );
+  return result.rows[0] || null;
+}
+
+async function recordSelfieSearch({ clientId, matchedPhotoCount }) {
+  await pool.query(
+    "INSERT INTO client_selfie_searches (client_id, matched_photo_count) VALUES ($1, $2)",
+    [clientId, matchedPhotoCount]
+  );
 }
 
 async function listSelectionsForAlbum(albumId) {
@@ -96,6 +157,12 @@ module.exports = {
   findOrCreateClient,
   findClientAccountByPhone,
   findClient,
+  findClientById,
   toggleSelection,
   listSelectionsForAlbum,
+  setFaceSearchConsent,
+  setMinorFlagged,
+  revokeFaceSearchConsent,
+  recordFaceSearchConsentLog,
+  recordSelfieSearch,
 };

@@ -1,12 +1,27 @@
 const express = require("express");
+const multer = require("multer");
 const albumController = require("../controllers/albumController");
 const selectionController = require("../controllers/selectionController");
 const annotationController = require("../controllers/annotationController");
 const sceneController = require("../controllers/sceneController");
 const burstClusterController = require("../controllers/burstClusterController");
+const filenameExportController = require("../controllers/filenameExportController");
 const { requireAuth } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
+
+// Bước 4.2 — upload file .zip ảnh đã hậu kỳ (tùy chọn, xem albumController.uploadZip).
+const uploadZipMiddleware = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 },
+  fileFilter: (req, file, callback) => {
+    const extension = file.originalname.toLowerCase();
+    if (!extension.endsWith(".zip")) {
+      return callback(new multer.MulterError("LIMIT_UNEXPECTED_FILE", "file"));
+    }
+    callback(null, true);
+  },
+});
 
 /**
  * @swagger
@@ -146,6 +161,37 @@ router.get("/:albumId/annotations", requireAuth, annotationController.listForAlb
 
 /**
  * @swagger
+ * /api/albums/{albumId}/annotations/{annotationId}:
+ *   patch:
+ *     summary: Đánh dấu 1 yêu cầu chỉnh sửa của khách là đã xử lý (done) hoặc mở lại (pending)
+ *     tags: [Albums]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *       - in: path
+ *         name: annotationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Annotation đã cập nhật trạng thái
+ *       400:
+ *         description: status không hợp lệ
+ *       401:
+ *         description: Chưa đăng nhập
+ *       404:
+ *         description: Không tìm thấy annotation
+ */
+router.patch(
+  "/:albumId/annotations/:annotationId",
+  requireAuth,
+  annotationController.updateStatus
+);
+
+/**
+ * @swagger
  * /api/albums/{albumId}/scenes:
  *   post:
  *     summary: Tạo hàng loạt scene (buổi chụp) cho album — dùng bởi luồng upload sau AI Culling
@@ -187,5 +233,61 @@ router.post("/:albumId/scenes", requireAuth, sceneController.create);
  *         description: Không tìm thấy album
  */
 router.post("/:albumId/burst-clusters", requireAuth, burstClusterController.create);
+
+/**
+ * @swagger
+ * /api/albums/{albumId}/filename-export:
+ *   post:
+ *     summary: Tổng hợp ảnh đã chọn/có ghi chú + sinh chuỗi tên file cho Lightroom/Photoshop (Bước 4.1)
+ *     tags: [Albums]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *     responses:
+ *       200:
+ *         description: Danh sách ảnh kèm ghi chú, filename_list, search_string (dán được vào Lightroom)
+ *       401:
+ *         description: Chưa đăng nhập
+ *       404:
+ *         description: Không tìm thấy album
+ */
+router.post("/:albumId/filename-export", requireAuth, filenameExportController.generate);
+
+/**
+ * @swagger
+ * /api/albums/{albumId}/zip-upload:
+ *   post:
+ *     summary: Upload file .zip ảnh đã hậu kỳ, dùng làm nguồn ZIP cho khách tải (Bước 4.2, tùy chọn)
+ *     tags: [Albums]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file: { type: string, format: binary, description: "File .zip tối đa 2 GB" }
+ *     responses:
+ *       201:
+ *         description: Album đã gắn zip_drive_file_id mới
+ *       400:
+ *         description: Thiếu file hoặc không phải .zip hợp lệ
+ *       401:
+ *         description: Chưa đăng nhập
+ *       404:
+ *         description: Không tìm thấy album
+ */
+router.post(
+  "/:albumId/zip-upload",
+  requireAuth,
+  uploadZipMiddleware.single("file"),
+  albumController.uploadZip
+);
 
 module.exports = router;

@@ -63,4 +63,19 @@ async function createPhoto({
   return result.rows[0];
 }
 
-module.exports = { listByAlbumId, createPhoto, findByAlbumAndId };
+// Bước 4.2 — ảnh nguồn cho ZIP dynamic (khi album chưa có zip_drive_file_id do PTG upload
+// riêng): hợp toàn bộ ảnh ĐÃ ĐƯỢC ÍT NHẤT 1 KHÁCH chọn trong album — không chỉ ảnh của 1
+// khách cụ thể, vì download_zip_unlocked/zip_drive_file_id là cấu hình chung cho CẢ album
+// (không phải theo từng khách), khớp cách Bước 4.1 tổng hợp "toàn bộ ảnh đã chọn theo album".
+async function listSelectedForAlbum(albumId) {
+  const result = await pool.query(
+    `SELECT id, drive_file_id, original_base_filename
+     FROM photos
+     WHERE album_id = $1 AND EXISTS (SELECT 1 FROM selections s WHERE s.photo_id = photos.id)
+     ORDER BY created_at ASC`,
+    [albumId]
+  );
+  return result.rows;
+}
+
+module.exports = { listByAlbumId, createPhoto, findByAlbumAndId, listSelectedForAlbum };
