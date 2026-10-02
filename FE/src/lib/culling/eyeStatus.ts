@@ -15,6 +15,13 @@ import type {
   NormalizedFaceBox,
 } from "./types";
 import type { AccelerationTier } from "./hardwareAcceleration";
+import {
+  eyeOpenScore,
+  faceFocusScore,
+  focusCropSize,
+  focusMeasure,
+  grayFromRgba,
+} from "./faceQuality";
 
 const WASM_BASE_URL =
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm";
@@ -26,6 +33,17 @@ const MODEL_URL =
 // gốc của Soukupová & Čech (2016).
 const RIGHT_EYE_IDX = [33, 160, 158, 133, 153, 144];
 const LEFT_EYE_IDX = [362, 385, 387, 263, 373, 380];
+// Toàn bộ viền 2 mắt (16 điểm mỗi mắt) — dùng xác định vùng crop đo độ nét vùng mắt.
+const EYE_CONTOUR_IDX = [
+  33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246,
+  362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398,
+];
+
+// Mặt có cạnh ngắn (theo pixel ảnh phân tích) nhỏ hơn ngưỡng này bị bỏ qua hoàn toàn: quá
+// ít pixel để đo độ nét/độ mở mắt tin cậy, thường là người đứng xa phía sau.
+const MIN_FACE_SIZE_PX = 40;
+// Mặt có chiều rộng >= tỉ lệ này so với mặt lớn nhất trong ảnh được coi là "người chính".
+const MAIN_SUBJECT_MIN_WIDTH_RATIO = 0.5;
 
 export const DEFAULT_EYE_THRESHOLDS: EyeStatusThresholds = {
   closedBelow: 0.15,
@@ -78,12 +96,13 @@ async function createFaceLandmarker(
     runningMode: "IMAGE",
     // Bước 1.8 — nâng lên 20 để không bỏ sót mặt trong ảnh nhóm đông người (Close-up Panel).
     numFaces: 20,
-    // Bước hiệu năng — hạ từ mặc định 0.5 xuống 0.3 để bắt thêm mặt nhỏ/ở biên khung hình
-    // (ảnh nhóm đông người, người đứng xa máy ảnh) — đánh đổi lấy khả năng dương tính giả
-    // cao hơn một chút, chấp nhận được vì đây là gợi ý duyệt, không phải quyết định cuối.
-    minFaceDetectionConfidence: 0.3,
-    minFacePresenceConfidence: 0.3,
-    outputFaceBlendshapes: false,
+    // 0.6: bỏ detection rác (vật thể/hoa văn giống mặt) — trước đây hạ xuống 0.3 để bắt mặt
+    // nhỏ ở xa, nhưng mặt nhỏ < MIN_FACE_SIZE_PX giờ bị loại khỏi chấm điểm, còn detection
+    // giả ở ngưỡng thấp lại có thể khiến cả ảnh bị đề xuất loại oan (mặt giả "nhắm mắt").
+    minFaceDetectionConfidence: 0.6,
+    minFacePresenceConfidence: 0.6,
+    // Blendshape eyeBlinkLeft/Right — tín hiệu nháy mắt thứ 2 ngoài EAR (faceQuality.ts).
+    outputFaceBlendshapes: true,
     outputFacialTransformationMatrixes: false,
   });
 }
@@ -121,6 +140,85 @@ export function classifyEyeStatus(
   if (earValue < thresholds.closedBelow) return "closed";
   if (earValue < thresholds.squintBelow) return "squint";
   return "open";
+}
+
+interface PixelBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Hộp bao (pixel, không đệm) của 1 tập landmark. */
+function landmarkPixelBox(
+  landmarks: NormalizedLandmark[],
+  width: number,
+  height: number,
+  indices?: number[]
+): PixelBox {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of indices ? indices.map((i) => landmarks[i]) : landmarks) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return {
+    x: minX * width,
+    y: minY * height,
+    width: (maxX - minX) * width,
+    height: (maxY - minY) * height,
+  };
+}
+
+/** Cắt 1 vùng của ảnh phân tích, thu nhỏ theo focusCropSize rồi đo focusMeasure. null nếu
+ * vùng nằm ngoài ảnh/quá nhỏ. */
+function measureRegionFocus(
+  source: OffscreenCanvas,
+  box: PixelBox
+): number | null {
+  const x0 = Math.max(0, Math.floor(box.x));
+  const y0 = Math.max(0, Math.floor(box.y));
+  const x1 = Math.min(source.width, Math.ceil(box.x + box.width));
+  const y1 = Math.min(source.height, Math.ceil(box.y + box.height));
+  const cropWidth = x1 - x0;
+  const cropHeight = y1 - y0;
+  if (cropWidth < 8 || cropHeight < 6) return null;
+
+  const size = focusCropSize(cropWidth, cropHeight);
+  const canvas = new OffscreenCanvas(size.width, size.height);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, x0, y0, cropWidth, cropHeight, 0, 0, size.width, size.height);
+  const { data } = ctx.getImageData(0, 0, size.width, size.height);
+  return focusMeasure(grayFromRgba(data, size.width, size.height));
+}
+
+/** Vùng 2 mắt, đệm thêm để lấy cả mí/lông mi (chi tiết sắc nhất khi lấy nét đúng mắt). */
+function eyeRegionBox(landmarks: NormalizedLandmark[], width: number, height: number): PixelBox {
+  const box = landmarkPixelBox(landmarks, width, height, EYE_CONTOUR_IDX);
+  const padX = box.width * 0.15;
+  const padY = Math.max(box.height, box.width * 0.12);
+  return {
+    x: box.x - padX,
+    y: box.y - padY,
+    width: box.width + 2 * padX,
+    height: box.height + 2 * padY,
+  };
+}
+
+function blinkScoreOf(categories: { categoryName: string; score: number }[] | undefined) {
+  if (!categories) return null;
+  const left = categories.find((c) => c.categoryName === "eyeBlinkLeft")?.score;
+  const right = categories.find((c) => c.categoryName === "eyeBlinkRight")?.score;
+  if (left === undefined || right === undefined) return null;
+  // Chỉ cần 1 mắt nhắm là ảnh đã hỏng -> lấy mắt "nhắm" nhiều hơn.
+  return Math.max(left, right);
 }
 
 // Bước 1.8 — hộp bao khuôn mặt từ toàn bộ 478 điểm landmark (min/max x,y), cộng biên rộng
@@ -166,19 +264,36 @@ export async function detectEyeStatus(
   thresholds?: EyeStatusThresholds
 ): Promise<EyeDetectionResult> {
   const result = landmarker.detect(image);
-  const faceLandmarks = result.faceLandmarks;
-  if (!faceLandmarks || faceLandmarks.length === 0) {
+  const faceLandmarks = result.faceLandmarks ?? [];
+
+  const candidates = faceLandmarks
+    .map((landmarks, index) => ({
+      landmarks,
+      blendshapes: result.faceBlendshapes?.[index]?.categories,
+      pixelBox: landmarkPixelBox(landmarks, width, height),
+    }))
+    .filter((c) => Math.min(c.pixelBox.width, c.pixelBox.height) >= MIN_FACE_SIZE_PX);
+  if (candidates.length === 0) {
     return { faceCount: 0, earValue: null, faces: [] };
   }
 
-  const faces: DetectedFace[] = faceLandmarks.map((landmarks) => {
+  const largestWidth = Math.max(...candidates.map((c) => c.pixelBox.width));
+
+  const faces: DetectedFace[] = candidates.map(({ landmarks, blendshapes, pixelBox }) => {
     const rightEar = eyeAspectRatio(landmarks, RIGHT_EYE_IDX, width, height);
     const leftEar = eyeAspectRatio(landmarks, LEFT_EYE_IDX, width, height);
     const earValue = (rightEar + leftEar) / 2;
+
+    const faceMeasure = measureRegionFocus(image, pixelBox) ?? 0;
+    const eyeMeasure = measureRegionFocus(image, eyeRegionBox(landmarks, width, height));
+
     return {
       earValue,
       eyeStatus: classifyEyeStatus(earValue, thresholds),
       box: computeFaceBox(landmarks),
+      eyeOpenScore: eyeOpenScore(earValue, blinkScoreOf(blendshapes)),
+      focusScore: faceFocusScore(faceMeasure, eyeMeasure),
+      isMainSubject: pixelBox.width >= largestWidth * MAIN_SUBJECT_MIN_WIDTH_RATIO,
     };
   });
 

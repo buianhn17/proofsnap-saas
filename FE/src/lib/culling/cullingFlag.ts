@@ -3,6 +3,7 @@
 // (/dev/culling-test) — nếu sau này hiệu chỉnh lại, chỉ cần sửa ở đây, cả trang test lẫn
 // UI chính đều dùng chung.
 
+import { scorePhoto } from "./burstScoring";
 import type { CullingMetrics, SharpnessThresholds } from "./types";
 
 export type CullingFlag = "green" | "yellow" | "red";
@@ -21,14 +22,21 @@ export function sharpnessBucket(
   return "green";
 }
 
-/** Mắt nhắm luôn kéo xuống đỏ bất kể độ nét — ảnh nhắm mắt gần như chắc chắn bị loại. */
-export function classifyCullingFlag(
-  metrics: CullingMetrics,
-  thresholds: SharpnessThresholds = DEFAULT_SHARPNESS_THRESHOLDS
-): CullingFlag {
-  if (metrics.eyeStatus === "closed") return "red";
-  const bucket = sharpnessBucket(metrics.sharpnessScore, thresholds);
-  if (bucket === "red") return "red";
-  if (bucket === "yellow" || metrics.eyeStatus === "squint") return "yellow";
+// Ảnh không bị đề xuất loại nhưng điểm tổng dưới mức này (hoặc có người chính nheo mắt)
+// -> vàng, cần PTG xem lại.
+const REVIEW_SCORE_BELOW = 0.55;
+const SQUINT_EYE_OPEN_BELOW = 0.5;
+
+/** Nhãn gợi ý cho 1 ảnh theo điểm chất lượng (burstScoring.ts): đỏ = có lý do loại rõ ràng
+ * (nhắm mắt, out nét trên mặt người chính, phơi sáng hỏng), vàng = dùng được nhưng nên xem
+ * lại, xanh = tốt. Chấm độc lập từng ảnh — vai trò trong chùm burst (best/alternative) là
+ * thông tin riêng, không đổi nhãn này. */
+export function classifyCullingFlag(metrics: CullingMetrics): CullingFlag {
+  const score = scorePhoto(metrics);
+  if (score.suggestReject) return "red";
+  const squinting = metrics.faces.some(
+    (f) => f.isMainSubject && f.eyeOpenScore < SQUINT_EYE_OPEN_BELOW
+  );
+  if (squinting || score.overall < REVIEW_SCORE_BELOW) return "yellow";
   return "green";
 }

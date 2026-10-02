@@ -288,6 +288,7 @@ export default function CullingTestPage() {
       summary.items.map((item) => ({
         id: item.file.relativePath,
         timestampMs: item.sceneSignals.capturedAtMs ?? item.file.file.lastModified,
+        timestampSource: item.sceneSignals.timestampSource,
         histogram: item.sceneSignals.histogram,
         hash: item.metrics.hash,
       }))

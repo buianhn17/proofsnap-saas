@@ -1,20 +1,28 @@
 // Bước 1.5 — hợp đồng postMessage giữa main thread (cullingWorkerClient.ts) và
 // Web Worker (culling.worker.ts). Chỉ chứa kiểu dữ liệu thuần (không import code chạy),
 // để cả 2 phía import mà không kéo theo lib WebWorker-only hay DOM-only vào nhau.
+//
+// Mô hình pool: client giữ hàng đợi ảnh và phát TỪNG ẢNH cho từng worker rảnh ("process"),
+// worker trả kết quả theo jobId. Worker không biết gì về cả lượt chạy (tổng số ảnh, tiến
+// độ, huỷ) — phần điều phối đó nằm hết ở client.
 
-import type { LocalPhotoFile } from "../localPhotoFile";
 import type { AccelerationTier, HardwareInfo } from "./hardwareAcceleration";
 import type { CullingMetrics, CullingTimingsMs } from "./types";
 import type { CullingPipelineOptions, SceneSignals } from "./cullingPipeline";
 
 export type WorkerRequest =
-  | { type: "run"; files: LocalPhotoFile[]; options: CullingPipelineOptions }
-  | { type: "abort" };
+  /** Khởi tạo FaceLandmarker cho tầng tăng tốc (worker cache lại, gọi lại nhiều lần rẻ). */
+  | { type: "init"; accelerationTier: AccelerationTier }
+  | {
+      type: "process";
+      jobId: number;
+      file: File;
+      /** File RAW cùng cặp (nếu có) — dùng để lấy preview nhúng thay vì decode JPEG. */
+      rawFile: File | null;
+      options: CullingPipelineOptions;
+    };
 
 export interface WorkerItemResult {
-  /** Vị trí trong mảng files đã gửi — dùng để client ghép lại với LocalPhotoFile gốc
-   * (client giữ sẵn mảng đó nên không cần gửi File ngược lại qua postMessage). */
-  index: number;
   width: number;
   height: number;
   metrics: CullingMetrics;
@@ -22,25 +30,11 @@ export interface WorkerItemResult {
   sceneSignals: SceneSignals;
   thumbnailBlob: Blob;
   previewBlob: Blob;
+  usedEmbeddedPreview: boolean;
   error?: string;
 }
 
 export type WorkerResponse =
-  | {
-      type: "progress";
-      processed: number;
-      total: number;
-      currentFileName: string;
-      elapsedMs: number;
-      imagesPerSecond: number;
-    }
-  | { type: "item"; result: WorkerItemResult }
-  | {
-      type: "done";
-      itemCount: number;
-      totalElapsedMs: number;
-      imagesPerSecond: number;
-      accelerationTier: AccelerationTier;
-      hardwareInfo: HardwareInfo;
-    }
-  | { type: "error"; message: string };
+  | { type: "ready"; hardwareInfo: HardwareInfo }
+  | { type: "initError"; message: string }
+  | { type: "result"; jobId: number; result: WorkerItemResult };

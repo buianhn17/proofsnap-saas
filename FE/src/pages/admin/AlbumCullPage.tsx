@@ -14,6 +14,7 @@ import {
   type SyntheticEvent as ReactSyntheticEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { api } from "../../lib/api";
@@ -31,7 +32,11 @@ import type {
 import { runCullingTestInWorker } from "../../lib/culling/cullingWorkerClient";
 import { classifyCullingFlag, type CullingFlag } from "../../lib/culling/cullingFlag";
 import { groupScenesAndBursts } from "../../lib/culling/sceneGrouping";
-import { pickBestInGroup } from "../../lib/culling/burstRepresentative";
+import {
+  scoreBursts,
+  type PhotoAnalysisResult,
+  type RejectReason,
+} from "../../lib/culling/burstScoring";
 import { cropFaceFromFile } from "../../lib/culling/faceCrop";
 import {
   copyKeptPairsToNewFolder,
@@ -55,6 +60,13 @@ type LocalActionState =
   | { kind: "running"; action: LocalActionKind; done: number; total: number }
   | { kind: "done"; action: LocalActionKind; message: string }
   | { kind: "error"; action: LocalActionKind; message: string };
+
+const REJECT_REASON_LABEL: Record<RejectReason, string> = {
+  blink: "Nhắm mắt",
+  out_of_focus: "Out nét",
+  underexposed: "Thiếu sáng",
+  overexposed: "Cháy sáng",
+};
 
 const EYE_LABEL: Record<EyeStatus, string> = {
   open: "Mở",
@@ -171,6 +183,9 @@ export default function AlbumCullPage() {
   const abortRef = useRef<(() => void) | null>(null);
 
   const [items, setItems] = useState<CullingTestItem[]>([]);
+  // Vị trí của mỗi ảnh trong danh sách đầu vào — pool worker trả kết quả theo thứ tự xử lý
+  // xong (không cố định), dùng map này để chèn ảnh vào `items` đúng thứ tự file gốc.
+  const inputIndexRef = useRef(new Map<string, number>());
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   // Bước hiệu năng — 2 bản blob nhẹ hơn nhiều so với file gốc (thường 20-40MB): `thumbnails`
   // (~900px, cho ô lưới) và `previews` (~2000px, cho màn hình xem full-screen). File gốc chỉ
@@ -221,14 +236,28 @@ export default function AlbumCullPage() {
     }
   }
 
-  function handleItem(item: CullingTestItem) {
+  function handleItem(item: CullingTestItem, inputIndex: number) {
     const path = item.file.relativePath;
+    inputIndexRef.current.set(path, inputIndex);
     const thumbnailUrl = URL.createObjectURL(item.thumbnailBlob);
     const previewUrl = URL.createObjectURL(item.previewBlob);
     thumbnailUrlsRef.current.push(thumbnailUrl, previewUrl);
     setThumbnails((prev) => ({ ...prev, [path]: thumbnailUrl }));
     setPreviews((prev) => ({ ...prev, [path]: previewUrl }));
-    setItems((prev) => [...prev, item]);
+    setItems((prev) => {
+      const indexOf = (it: CullingTestItem) =>
+        inputIndexRef.current.get(it.file.relativePath) ?? 0;
+      let lo = 0;
+      let hi = prev.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (indexOf(prev[mid]) < inputIndex) lo = mid + 1;
+        else hi = mid;
+      }
+      const next = prev.slice();
+      next.splice(lo, 0, item);
+      return next;
+    });
 
     // Khởi tạo màu rate = đúng gợi ý AI — PTG ghi đè sau bằng phím tắt/nút bấm.
     const flag = classifyCullingFlag(item.metrics);
@@ -249,9 +278,12 @@ export default function AlbumCullPage() {
     setItems([]);
     setDecisions({});
 
+    inputIndexRef.current = new Map();
     const { promise, abort } = runCullingTestInWorker(jpgFiles, {
       onProgress: setProgress,
       onItem: handleItem,
+      // Ảnh có RAW cùng cặp: phân tích trên preview nhúng trong RAW (nhanh hơn decode JPEG).
+      pairedRawFile: (jpg) => jpgPathToRaw.get(jpg.relativePath)?.file ?? null,
     });
     abortRef.current = abort;
 
@@ -395,19 +427,31 @@ export default function AlbumCullPage() {
   }
 
   // Bước 1.7 — gom scene (buổi chụp) theo thời gian EXIF + đổi khung hình lớn, và burst
-  // (loạt ảnh liên tiếp giống nhau) theo dHash, để hiển thị "Theo buổi chụp".
-  const scenes = useMemo<SceneGroup[]>(() => {
-    if (items.length === 0) return [];
+  // (chụp cách nhau <= 1.2s + bố cục giống nhau), để hiển thị "Theo buổi chụp". Mỗi burst
+  // được chấm điểm và chọn best pick (burstScoring.ts) — ảnh đại diện của cụm.
+  const { scenes, analysisByPath } = useMemo<{
+    scenes: SceneGroup[];
+    analysisByPath: Map<string, PhotoAnalysisResult>;
+  }>(() => {
+    if (items.length === 0) return { scenes: [], analysisByPath: new Map() };
     const grouping = groupScenesAndBursts(
       items.map((item) => ({
         id: item.file.relativePath,
         timestampMs:
           item.sceneSignals.capturedAtMs ?? item.file.file.lastModified,
+        timestampSource: item.sceneSignals.timestampSource,
         histogram: item.sceneSignals.histogram,
         hash: item.metrics.hash,
       }))
     );
     const byPath = new Map(items.map((item) => [item.file.relativePath, item]));
+    const analysisByPath = scoreBursts(
+      items.map((item) => ({
+        photoId: item.file.relativePath,
+        burstGroupId: String(grouping.burstId.get(item.file.relativePath) ?? -1),
+        metrics: item.metrics,
+      }))
+    );
 
     const sceneItemsById = new Map<number, CullingTestItem[]>();
     for (const path of grouping.order) {
@@ -418,7 +462,7 @@ export default function AlbumCullPage() {
       sceneItemsById.get(sceneId)!.push(item);
     }
 
-    return Array.from(sceneItemsById.entries()).map(([sceneId, sceneItems]) => {
+    const sceneGroups = Array.from(sceneItemsById.entries()).map(([sceneId, sceneItems]) => {
       const burstItemsById = new Map<number, CullingTestItem[]>();
       for (const item of sceneItems) {
         const burstId = grouping.burstId.get(item.file.relativePath);
@@ -430,7 +474,10 @@ export default function AlbumCullPage() {
         ([burstId, burstItems]) => ({
           burstId,
           items: burstItems,
-          representative: pickBestInGroup(burstItems, (it) => it.metrics)!,
+          representative:
+            burstItems.find(
+              (it) => analysisByPath.get(it.file.relativePath)?.is_best_pick
+            ) ?? burstItems[0],
         })
       );
       const timestamps = sceneItems.map(
@@ -444,6 +491,7 @@ export default function AlbumCullPage() {
         endMs: Math.max(...timestamps),
       };
     });
+    return { scenes: sceneGroups, analysisByPath };
   }, [items]);
 
   // Bug fix — thứ tự ảnh khi duyệt (mở/Trước/Sau trong review) phải khớp với thứ tự ĐANG
@@ -1111,6 +1159,16 @@ export default function AlbumCullPage() {
     };
   }, [currentItem]);
 
+  useEffect(() => {
+    if (currentItem) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = prev;
+      };
+    }
+  }, [currentItem]);
+
   if (!supported) {
     return (
       <div className="max-w-2xl">
@@ -1401,289 +1459,341 @@ export default function AlbumCullPage() {
         </div>
       )}
 
-      {currentItem && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-[#131313]">
-          <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#414752] bg-[#201f1f] px-8">
-            <div className="flex items-center gap-4">
-              <button
-                type="button"
-                onClick={() => setReviewIndex(null)}
-                className="flex items-center justify-center rounded-xl p-2 text-[#e5e2e1] hover:bg-[#2a2a2a]"
-                title="Quay lại lưới (Esc)"
-              >
-                ←
-              </button>
-              {album && (
-                <span className="text-xl font-semibold text-[#e5e2e1]">
-                  {album.name}
-                </span>
-              )}
-              {currentContext && (
-                <span className="rounded-md border border-[#414752] bg-[#2a2a2a] px-[9px] py-[5px] font-mono text-xs tracking-[0.6px] text-[#c1c6d4]">
-                  Cảnh {currentContext.sceneIndex + 1}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-6">
-              <span className="text-base text-[#c1c6d4]">
-                {reviewIndex! + 1} / {displayOrderItems.length} ảnh
-                {isRunning && " (đang phân tích thêm...)"}
-                {currentContext?.burst && (
-                  <span className="text-[#ffb95e]">
-                    {" "}
-                    | Cụm {currentContext.burst.burstId + 1} (
-                    {currentContext.burst.items.length} ảnh)
+      {currentItem &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] flex flex-col bg-[#090a0f] text-slate-100 overflow-hidden">
+            {/* Top Header */}
+            <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-950/90 px-6 backdrop-blur-md">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setReviewIndex(null)}
+                  className="flex items-center justify-center rounded-xl p-2 text-zinc-400 hover:bg-white/10 hover:text-white transition-colors"
+                  title="Quay lại lưới (Esc)"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="19" y1="12" x2="5" y2="12" />
+                    <polyline points="12 19 5 12 12 5" />
+                  </svg>
+                </button>
+                {album && (
+                  <span className="text-sm font-bold text-white">
+                    {album.name}
                   </span>
                 )}
-              </span>
-              <button
-                type="button"
-                onClick={() => setAutoSkipFlagged((prev) => !prev)}
-                className={`rounded-full border px-2.5 py-1 font-mono text-xs tracking-[0.6px] ${
-                  autoSkipFlagged
-                    ? "border-[#2e5c41] text-[#93f5b7]"
-                    : "border-[#414752] text-[#c1c6d4]"
-                }`}
-              >
-                Tự động bỏ qua ảnh loại (S): {autoSkipFlagged ? "Bật" : "Tắt"}
-              </button>
-            </div>
-          </div>
-
-          <div
-            ref={reviewImageContainerRef}
-            onWheel={handleReviewWheel}
-            className="relative flex flex-1 items-center justify-center overflow-hidden p-6"
-          >
-            {readyPreviewSrc && (
-              <img
-                key={readyPreviewSrc}
-                src={readyPreviewSrc}
-                alt={currentItem.file.file.name}
-                onDoubleClick={handleReviewImageDoubleClick}
-                className={`max-h-full max-w-full cursor-zoom-in border border-[#2a2a2a] object-contain shadow-[0px_25px_50px_-12px_rgba(0,0,0,0.25)] [animation:fade-in_180ms_ease-out] ${
-                  reviewZoom ? "invisible" : ""
-                }`}
-              />
-            )}
-            {zoomFullSrc && (
-              <img
-                src={zoomFullSrc}
-                alt={currentItem.file.file.name}
-                draggable={false}
-                onLoad={handleZoomImageLoaded}
-                onDoubleClick={handleReviewImageDoubleClick}
-                onPointerDown={handleZoomPointerDown}
-                onPointerMove={handleZoomPointerMove}
-                onPointerUp={handleZoomPointerUp}
-                onPointerLeave={handleZoomPointerUp}
-                style={
-                  reviewZoom
-                    ? {
-                        transform: `translate(${reviewZoom.tx}px, ${reviewZoom.ty}px) scale(${reviewZoom.scale})`,
-                        transformOrigin: "center center",
-                        // Tắt transition lúc đang kéo để pan bám sát chuột ngay lập tức
-                        // (không trễ/dính), chỉ bật lại khi zoom bằng cuộn chuột/nhấp đúp.
-                        transition: isZoomDragging
-                          ? "none"
-                          : "transform 150ms cubic-bezier(0.22, 1, 0.36, 1)",
-                      }
-                    : undefined
-                }
-                className={`absolute inset-0 h-full w-full object-contain ${
-                  reviewZoom ? "cursor-grab active:cursor-grabbing" : "invisible"
-                }`}
-              />
-            )}
-            {reviewZoom && (
-              <span className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-2.5 py-1 text-[11px] font-medium text-white">
-                Zoom {Math.round((reviewZoom.scale / maxScaleRef.current) * 100)}% — cuộn để
-                zoom, kéo để xem, nhấp đúp/Esc để thoát
-              </span>
-            )}
-
-            <button
-              type="button"
-              onClick={() => moveTo(reviewIndex! - 1, -1)}
-              className="absolute left-6 top-1/2 flex size-12 -translate-y-1/2 items-center justify-center rounded-xl border border-[#414752] bg-[rgba(32,31,31,0.5)] text-[#e5e2e1] shadow-lg backdrop-blur-[2px] hover:bg-[rgba(32,31,31,0.8)]"
-            >
-              ←
-            </button>
-            <button
-              type="button"
-              onClick={() => moveTo(reviewIndex! + 1, 1)}
-              className="absolute right-6 top-1/2 flex size-12 -translate-y-1/2 items-center justify-center rounded-xl border border-[#414752] bg-[rgba(32,31,31,0.5)] text-[#e5e2e1] shadow-lg backdrop-blur-[2px] hover:bg-[rgba(32,31,31,0.8)]"
-            >
-              →
-            </button>
-
-            {!reviewZoom && (() => {
-              const flag = classifyCullingFlag(currentItem.metrics);
-              const overlay = FLAG_OVERLAY[flag];
-              return (
-                <div className="absolute right-6 top-6 flex flex-col items-end gap-2">
-                  <div
-                    className={`flex items-center gap-2 rounded-[4px] border px-[13px] py-[7px] backdrop-blur-[6px] ${overlay.bg} ${overlay.border}`}
-                  >
-                    <div>
-                      <p className={`font-mono text-xs font-medium uppercase tracking-[0.6px] ${overlay.text}`}>
-                        {overlay.label}
-                      </p>
-                      <p className={`text-sm ${overlay.text}`}>
-                        Độ nét: {currentItem.metrics.sharpnessScore.toFixed(0)}/100
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 rounded-[4px] border border-[#414752] bg-[#201f1f]/90 px-[13px] py-[7px] backdrop-blur-[6px]">
-                    <p className="text-sm text-[#c1c6d4]">
-                      Mắt: {EYE_LABEL[currentItem.metrics.eyeStatus]}
-                      {currentItem.metrics.earValue !== null &&
-                        ` (EAR ${currentItem.metrics.earValue.toFixed(2)})`}
-                    </p>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 px-4 py-2 text-xs">
-            <span className="max-w-xs truncate font-mono tracking-[0.6px] text-[#c1c6d4]">
-              {currentItem.file.file.name}
-            </span>
-            {currentItem.metrics.faceCount > 1 && (
-              <span className="text-[#8b919e]">
-                · {currentItem.metrics.faceCount} khuôn mặt
-              </span>
-            )}
-            {!reviewZoom && (
-              <span className="text-[#5a5958]">
-                Cuộn chuột hoặc nhấp đúp vào ảnh để zoom
-              </span>
-            )}
-          </div>
-
-          <div className="flex flex-1 overflow-hidden">
-            <div className="flex flex-1 flex-col overflow-hidden">
-              <div className="flex flex-col border-t border-[#414752] bg-[#1c1b1b]">
-                <div className="flex items-center justify-between border-b border-[rgba(32,31,31,0.5)] px-6 py-2">
-                  <span className="font-mono text-xs font-medium uppercase tracking-[0.6px] text-[#c1c6d4]">
-                    {currentContext
-                      ? `Cảnh ${currentContext.sceneIndex + 1} — ${
-                          currentContext.burst
-                            ? `Cụm ${currentContext.burst.items.length} ảnh`
-                            : `${currentContext.scene.items.length} ảnh`
-                        }`
-                      : `${displayOrderItems.length} ảnh trong lượt duyệt này`}
+                {currentContext && (
+                  <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 font-mono text-[11px] text-zinc-300">
+                    Cảnh {currentContext.sceneIndex + 1}
                   </span>
-                </div>
-                <div className="flex gap-2 overflow-x-auto px-6 py-2">
-                  {displayOrderItems.map((it, idx) => {
-                    const path = it.file.relativePath;
-                    const decision = decisions[path] ?? "yellow";
-                    const isActive = idx === reviewIndex;
-                    return (
-                      <button
-                        key={path}
-                        ref={isActive ? activeThumbRef : undefined}
-                        type="button"
-                        onClick={() => setReviewIndex(idx)}
-                        className={`relative aspect-[3/2] h-16 shrink-0 overflow-hidden rounded-[2px] border transition-opacity ${
-                          isActive
-                            ? "border-2 border-[#5a9cff] opacity-100"
-                            : "border-[#414752] opacity-60 hover:opacity-90"
-                        }`}
-                      >
-                        {thumbnails[path] && (
-                          <img
-                            src={thumbnails[path]}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                            className="h-full w-full object-cover"
-                          />
-                        )}
-                        {isActive && (
-                          <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-[#5a9cff] text-[10px] text-white">
-                            ✓
-                          </span>
-                        )}
-                        <span
-                          className={`absolute bottom-1 right-1 size-2 rounded-full shadow-[0px_0px_4px_0px_rgba(0,0,0,0.5)] ${DECISION_DOT[decision]}`}
-                        />
-                      </button>
-                    );
-                  })}
-                </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-zinc-400 font-mono">
+                  {reviewIndex! + 1} / {displayOrderItems.length} ảnh
+                  {isRunning && " (đang phân tích...)"}
+                  {currentContext?.burst && (
+                    <span className="text-amber-400">
+                      {" "}
+                      • Cụm {currentContext.burst.burstId + 1} ({currentContext.burst.items.length} ảnh)
+                    </span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAutoSkipFlagged((prev) => !prev)}
+                  className={`rounded-full border px-3 py-1 font-mono text-[11px] tracking-wider transition-colors ${
+                    autoSkipFlagged
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                      : "border-white/10 bg-white/5 text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  Tự động bỏ qua ảnh loại (S): {autoSkipFlagged ? "Bật" : "Tắt"}
+                </button>
               </div>
             </div>
 
-            {faceCrops.length > 0 && (
-              <div className="flex w-[280px] shrink-0 flex-col border-l border-[#414752] bg-[#1c1b1b]">
-                <div className="flex items-center justify-between border-b border-[#414752] px-6 py-4">
-                  <h3 className="text-xl font-semibold text-[#e5e2e1]">Bảng cận cảnh</h3>
-                </div>
-                <div className="flex flex-col gap-4 overflow-y-auto p-4">
-                  {currentItem.metrics.faces.map((face, index) => (
-                    <div
-                      key={index}
-                      className="relative rounded-[4px] border border-[#414752] bg-[#131313] p-2"
-                    >
-                      <span
-                        className={`absolute -left-2 -top-2 flex size-6 items-center justify-center rounded-full border font-mono text-[10px] ${
-                          face.eyeStatus === "open"
-                            ? "border-[#2e5c41] bg-[#1c3325] text-[#93f5b7]"
-                            : face.eyeStatus === "squint"
-                              ? "border-[#805d00] bg-[#4a3600] text-[#ffb95e]"
-                              : "border-[#414752] bg-[#2a2a2a] text-[#c1c6d4]"
-                        }`}
+            {/* Middle Main Content Area: Large Preview Center + Close-up Panel Right */}
+            <div className="relative flex flex-1 min-h-0 overflow-hidden">
+              {/* Photo Viewport Container */}
+              <div
+                ref={reviewImageContainerRef}
+                onWheel={handleReviewWheel}
+                className="relative flex flex-1 min-h-0 min-w-0 items-center justify-center overflow-hidden p-4 select-none"
+              >
+                {readyPreviewSrc && (
+                  <img
+                    key={readyPreviewSrc}
+                    src={readyPreviewSrc}
+                    alt={currentItem.file.file.name}
+                    onDoubleClick={handleReviewImageDoubleClick}
+                    className={`max-h-full max-w-full cursor-zoom-in rounded-xl border border-white/10 object-contain shadow-2xl [animation:fade-in_180ms_ease-out] ${
+                      reviewZoom ? "invisible" : ""
+                    }`}
+                  />
+                )}
+                {zoomFullSrc && (
+                  <img
+                    src={zoomFullSrc}
+                    alt={currentItem.file.file.name}
+                    draggable={false}
+                    onLoad={handleZoomImageLoaded}
+                    onDoubleClick={handleReviewImageDoubleClick}
+                    onPointerDown={handleZoomPointerDown}
+                    onPointerMove={handleZoomPointerMove}
+                    onPointerUp={handleZoomPointerUp}
+                    onPointerLeave={handleZoomPointerUp}
+                    style={
+                      reviewZoom
+                        ? {
+                            transform: `translate(${reviewZoom.tx}px, ${reviewZoom.ty}px) scale(${reviewZoom.scale})`,
+                            transformOrigin: "center center",
+                            transition: isZoomDragging
+                              ? "none"
+                              : "transform 150ms cubic-bezier(0.22, 1, 0.36, 1)",
+                          }
+                        : undefined
+                    }
+                    className={`absolute inset-0 h-full w-full object-contain ${
+                      reviewZoom ? "cursor-grab active:cursor-grabbing" : "invisible"
+                    }`}
+                  />
+                )}
+                {reviewZoom && (
+                  <span className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-white/20 bg-black/80 px-3 py-1 text-xs font-mono font-medium text-white backdrop-blur-md">
+                    Zoom {Math.round((reviewZoom.scale / maxScaleRef.current) * 100)}% — cuộn để zoom, kéo để di chuyển, nhấp đúp/Esc để thoát
+                  </span>
+                )}
+
+                {/* Left/Right arrow buttons */}
+                <button
+                  type="button"
+                  onClick={() => moveTo(reviewIndex! - 1, -1)}
+                  disabled={reviewIndex === 0}
+                  className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 text-white shadow-xl backdrop-blur-md transition-all hover:bg-zinc-800 disabled:opacity-30 disabled:pointer-events-none"
+                  title="Ảnh trước (A hoặc Phím mũi tên trái)"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveTo(reviewIndex! + 1, 1)}
+                  disabled={reviewIndex === displayOrderItems.length - 1}
+                  className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 text-white shadow-xl backdrop-blur-md transition-all hover:bg-zinc-800 disabled:opacity-30 disabled:pointer-events-none"
+                  title="Ảnh tiếp theo (D hoặc Phím mũi tên phải)"
+                >
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </button>
+
+                {/* Top-Right AI Metric Badges */}
+                {!reviewZoom && (() => {
+                  const flag = classifyCullingFlag(currentItem.metrics);
+                  const overlay = FLAG_OVERLAY[flag];
+                  const currentAnalysis = analysisByPath.get(currentItem.file.relativePath);
+                  return (
+                    <div className="absolute right-4 top-4 flex flex-col items-end gap-2 pointer-events-none">
+                      <div
+                        className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 backdrop-blur-md ${overlay.bg} ${overlay.border}`}
                       >
-                        {index + 1}
-                      </span>
-                      {faceCrops[index] && (
-                        <img
-                          src={faceCrops[index]}
-                          alt={`Khuôn mặt ${index + 1}`}
-                          className={`aspect-square w-full rounded-[2px] border object-cover ring-2 ${EYE_RING[face.eyeStatus]}`}
-                        />
-                      )}
-                      <div className="mt-2 flex items-center justify-between text-sm">
-                        <span className="text-[#e5e2e1]">Mắt</span>
-                        <span className="text-[#c1c6d4]">{EYE_LABEL[face.eyeStatus]}</span>
+                        <div>
+                          <p className={`font-mono text-[10px] font-bold uppercase tracking-wider ${overlay.text}`}>
+                            {overlay.label}
+                          </p>
+                          {currentAnalysis && (
+                            <p className={`text-xs font-semibold ${overlay.text}`}>
+                              Điểm: {Math.round(currentAnalysis.overall_score * 100)}/100
+                              {currentAnalysis.is_best_pick && " · ★ Đẹp nhất cụm"}
+                            </p>
+                          )}
+                          {currentAnalysis && currentAnalysis.reject_reasons.length > 0 && (
+                            <p className={`text-xs ${overlay.text}`}>
+                              {currentAnalysis.reject_reasons
+                                .map((reason) => REJECT_REASON_LABEL[reason])
+                                .join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-950/80 px-3 py-1.5 backdrop-blur-md">
+                        <p className="text-xs text-zinc-300">
+                          Mắt: <span className="font-semibold text-white">{EYE_LABEL[currentItem.metrics.eyeStatus]}</span>
+                          {currentItem.metrics.earValue !== null &&
+                            ` (EAR ${currentItem.metrics.earValue.toFixed(2)})`}
+                        </p>
                       </div>
                     </div>
-                  ))}
+                  );
+                })()}
+              </div>
+
+              {/* Close-up Face Crops Sidebar (Right) */}
+              {faceCrops.length > 0 && (
+                <div className="flex w-72 shrink-0 flex-col border-l border-white/10 bg-zinc-950/90 backdrop-blur-xl">
+                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 font-mono">
+                      Bảng cận cảnh ({faceCrops.length} khuôn mặt)
+                    </h3>
+                  </div>
+                  <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
+                    {currentItem.metrics.faces.map((face, index) => (
+                      <div
+                        key={index}
+                        className="relative rounded-2xl border border-white/10 bg-zinc-900/60 p-3 transition-colors hover:border-white/20"
+                      >
+                        <span
+                          className={`absolute -left-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border font-mono text-[10px] font-bold shadow ${
+                            face.eyeStatus === "open"
+                              ? "border-emerald-500/40 bg-emerald-950 text-emerald-300"
+                              : face.eyeStatus === "squint"
+                              ? "border-amber-500/40 bg-amber-950 text-amber-300"
+                              : "border-white/20 bg-zinc-800 text-zinc-300"
+                          }`}
+                        >
+                          {index + 1}
+                        </span>
+                        {faceCrops[index] && (
+                          <img
+                            src={faceCrops[index]}
+                            alt={`Khuôn mặt ${index + 1}`}
+                            className={`aspect-square w-full rounded-xl border object-cover ring-2 ${EYE_RING[face.eyeStatus]}`}
+                          />
+                        )}
+                        <div className="mt-2 flex items-center justify-between text-xs">
+                          <span className="text-zinc-400">Trạng thái mắt</span>
+                          <span className="font-semibold text-white">{EYE_LABEL[face.eyeStatus]}</span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between text-xs">
+                          <span className="text-zinc-400">Mở mắt / Độ nét</span>
+                          <span className="font-mono font-semibold text-white">
+                            {Math.round(face.eyeOpenScore * 100)}% / {Math.round(face.focusScore * 100)}%
+                          </span>
+                        </div>
+                        {!face.isMainSubject && (
+                          <p className="mt-1 text-[11px] text-zinc-500">Người phụ — không tính khi chấm điểm</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Filmstrip Section (Fixed Compact Height) */}
+            <div className="shrink-0 border-t border-white/10 bg-zinc-950">
+              <div className="flex items-center justify-between px-6 py-1.5 text-xs text-zinc-400">
+                <span className="font-mono text-[11px] font-medium text-zinc-300">
+                  {currentContext
+                    ? `Cảnh ${currentContext.sceneIndex + 1} — ${
+                        currentContext.burst
+                          ? `Cụm ${currentContext.burst.items.length} ảnh`
+                          : `${currentContext.scene.items.length} ảnh`
+                      }`
+                    : `${displayOrderItems.length} ảnh trong lượt duyệt này`}
+                </span>
+                <div className="flex items-center gap-3 font-mono text-[11px]">
+                  <span className="text-zinc-200">{currentItem.file.file.name}</span>
+                  {currentItem.metrics.faceCount > 1 && (
+                    <span className="text-indigo-400">
+                      • {currentItem.metrics.faceCount} khuôn mặt
+                    </span>
+                  )}
+                  {!reviewZoom && (
+                    <span className="text-zinc-500">
+                      • Cuộn chuột hoặc nhấp đúp để zoom
+                    </span>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
 
-          <div className="flex shrink-0 items-center justify-between border-t border-[#414752] bg-[#0e0e0e] px-10 py-2">
-            <div className="flex items-center gap-6">
-              <span className="font-mono text-xs uppercase tracking-[0.6px] text-[#c1c6d4]">Phím tắt</span>
-              <span className="flex items-center gap-1.5 text-sm text-[#c1c6d4]">
-                <kbd className="rounded-[2px] border border-[#414752] bg-[#201f1f] px-1.5 py-0.5 font-mono text-sm text-[#e5e2e1]">K</kbd>
-                Giữ
-              </span>
-              <span className="flex items-center gap-1.5 text-sm text-[#c1c6d4]">
-                <kbd className="rounded-[2px] border border-[#414752] bg-[#201f1f] px-1.5 py-0.5 font-mono text-sm text-[#e5e2e1]">Y</kbd>
-                Xem lại
-              </span>
-              <span className="flex items-center gap-1.5 text-sm text-[#c1c6d4]">
-                <kbd className="rounded-[2px] border border-[#414752] bg-[#201f1f] px-1.5 py-0.5 font-mono text-sm text-[#e5e2e1]">X</kbd>
-                Loại
-              </span>
-              <span className="flex items-center gap-1.5 text-sm text-[#c1c6d4]">
-                <kbd className="rounded-[2px] border border-[#414752] bg-[#201f1f] px-1.5 py-0.5 font-mono text-sm text-[#e5e2e1]">A</kbd>/
-                <kbd className="rounded-[2px] border border-[#414752] bg-[#201f1f] px-1.5 py-0.5 font-mono text-sm text-[#e5e2e1]">D</kbd>
-                Ảnh trước/tiếp
+              {/* Thumbnails list */}
+              <div className="flex gap-2 overflow-x-auto px-6 pb-2.5">
+                {displayOrderItems.map((it, idx) => {
+                  const path = it.file.relativePath;
+                  const decision = decisions[path] ?? "yellow";
+                  const isActive = idx === reviewIndex;
+                  return (
+                    <button
+                      key={path}
+                      ref={isActive ? activeThumbRef : undefined}
+                      type="button"
+                      onClick={() => setReviewIndex(idx)}
+                      className={`relative aspect-[3/2] h-14 shrink-0 overflow-hidden rounded-lg border transition-all ${
+                        isActive
+                          ? "border-2 border-indigo-500 ring-2 ring-indigo-500/30 opacity-100 scale-105"
+                          : "border-white/10 opacity-60 hover:opacity-100"
+                      }`}
+                    >
+                      {thumbnails[path] && (
+                        <img
+                          src={thumbnails[path]}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full object-cover"
+                        />
+                      )}
+                      {isActive && (
+                        <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-600 text-[9px] text-white">
+                          ✓
+                        </span>
+                      )}
+                      <span
+                        className={`absolute bottom-1 right-1 h-2 w-2 rounded-full shadow ${DECISION_DOT[decision]}`}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Bottom Keyboard Shortcuts Footer */}
+            <div className="flex shrink-0 items-center justify-between border-t border-white/10 bg-black/95 px-6 py-2 text-xs">
+              <div className="flex items-center gap-6">
+                <span className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+                  Phím tắt
+                </span>
+                <span className="flex items-center gap-1.5 text-zinc-300">
+                  <kbd className="rounded border border-white/20 bg-zinc-800 px-1.5 py-0.5 font-mono text-[11px] text-emerald-400 font-bold">
+                    K
+                  </kbd>
+                  Giữ
+                </span>
+                <span className="flex items-center gap-1.5 text-zinc-300">
+                  <kbd className="rounded border border-white/20 bg-zinc-800 px-1.5 py-0.5 font-mono text-[11px] text-amber-400 font-bold">
+                    Y
+                  </kbd>
+                  Xem lại
+                </span>
+                <span className="flex items-center gap-1.5 text-zinc-300">
+                  <kbd className="rounded border border-white/20 bg-zinc-800 px-1.5 py-0.5 font-mono text-[11px] text-rose-400 font-bold">
+                    X
+                  </kbd>
+                  Loại
+                </span>
+                <span className="flex items-center gap-1.5 text-zinc-300">
+                  <kbd className="rounded border border-white/20 bg-zinc-800 px-1.5 py-0.5 font-mono text-[11px] text-white">
+                    A / D
+                  </kbd>
+                  Ảnh trước / tiếp
+                </span>
+                <span className="flex items-center gap-1.5 text-zinc-300">
+                  <kbd className="rounded border border-white/20 bg-zinc-800 px-1.5 py-0.5 font-mono text-[11px] text-white">
+                    Esc
+                  </kbd>
+                  Quay lại lưới
+                </span>
+              </div>
+              <span className="font-mono text-[11px] text-zinc-400">
+                Đã chọn: <strong className="text-emerald-400">{counts.keep}</strong> • Tổng: <strong>{counts.total}</strong>
               </span>
             </div>
-            <span className="font-mono text-xs uppercase tracking-[0.6px] text-[#c1c6d4]">
-              Đã chọn: {counts.keep} · Tổng: {counts.total}
-            </span>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
