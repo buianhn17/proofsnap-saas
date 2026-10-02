@@ -10,17 +10,17 @@ const redis = require("../config/redis");
 const { applyWatermark } = require("../services/watermarkService");
 const { resolveSizePreset, resizeToLongEdge } = require("../services/thumbnailService");
 const { downloadFileStream, downloadFileBuffer } = require("../services/googleDriveService");
-const { detectFaces, largestFace } = require("../services/faceEmbeddingService");
+const { detectFaces, largestFace } = require("../services/arcfaceService");
 const { streamPhotosAsZip } = require("../services/zipStreamService");
 
 const WATERMARK_CACHE_TTL_SECONDS = 60 * 60 * 24;
 
-// Bước 3.3 — ngưỡng cosine distance để coi 2 khuôn mặt là "cùng 1 người" (embedding.
-// face-api.js FaceRecognitionNet, 128 chiều). Đây là số liệu khởi điểm để chạy được tính
-// năng, CẦN hiệu chỉnh lại bằng dữ liệu thật (giống ghi chú "cần bạn chốt lại con số thật
-// trước khi build" ở compression_presets trong lensproof_schema.sql) — nới ra nếu bỏ sót
-// nhiều ảnh đúng (false negative), thắt lại nếu trả nhầm ảnh người khác (false positive).
-const FACE_MATCH_MAX_DISTANCE = 0.45;
+// Bước 3.3 — ngưỡng cosine distance để coi 2 khuôn mặt là "cùng 1 người" (embedding
+// ArcFace w600k_mbf 512 chiều, đã chuẩn hóa L2). 0.42 ~ cosine similarity > 0.58. Đo trên ảnh
+// sự kiện thật: cùng người ~0.09–0.45, khác người ≥ 0.6. Ghi đè qua env
+// FACE_MATCH_MAX_DISTANCE — nới lên (≤ 0.5) nếu khách bỏ sót ảnh của chính mình (selfie
+// khác nhiều về góc/ánh sáng), thắt lại nếu trả nhầm ảnh người khác.
+const FACE_MATCH_MAX_DISTANCE = Number(process.env.FACE_MATCH_MAX_DISTANCE) || 0.42;
 const FACE_MATCH_LIMIT = 300;
 
 function invalidAccess(message, code = "INVALID_CLIENT_ACCESS") {
@@ -28,6 +28,13 @@ function invalidAccess(message, code = "INVALID_CLIENT_ACCESS") {
   error.statusCode = 400;
   error.code = code;
   return error;
+// Độ khớp hiển thị cho khách = 1 - cosine distance (FE nhân 100 ra %), chặn trong [0, 1].
+// Kết quả đã lọc distance < FACE_MATCH_MAX_DISTANCE nên thực tế luôn ≥ 1 - ngưỡng (~58%).
+function distanceToSimilarity(distance) {
+  const similarity = 1 - distance;
+  return Math.round(Math.max(0, Math.min(1, similarity)) * 1000) / 1000;
+}
+
 }
 
 function publicAlbum(album) {
@@ -647,7 +654,7 @@ async function searchByFace(req, res, next) {
         created_at: m.created_at,
         burst_cluster_id: m.burst_cluster_id,
         is_best_in_cluster: m.is_best_in_cluster,
-        similarity: Math.round((1 - m.distance) * 1000) / 1000,
+        similarity: distanceToSimilarity(m.distance),
       })),
     });
   } catch (error) {

@@ -145,8 +145,17 @@ AI Face Search (Giai đoạn 3) hiện có:
    `client_selfie_searches`.
 
 Ảnh PTG upload (`POST /api/albums/:albumId/photos`) tự động trích embedding
-khuôn mặt (nếu có) và lưu vào `photo_face_embeddings` — chạy model
-face-api.js server-side, xem bước "Tải trọng số model" ở trên.
+khuôn mặt (nếu có) và lưu vào `photo_face_embeddings` — chạy model InsightFace
+(SCRFD phát hiện mặt + ArcFace embedding 512 chiều) server-side qua
+`onnxruntime-node`, xem bước "Tải trọng số model" ở trên. Ngưỡng so khớp (cosine
+distance, mặc định `0.42`) chỉnh được qua biến môi trường `FACE_MATCH_MAX_DISTANCE`.
+
+Sau khi áp dụng migration `007_upgrade_to_arcface_512.sql` (xóa embedding 128
+chiều cũ), chạy `npm run reindex:faces` để trích lại embedding cho ảnh đã upload
+(thêm `-- <albumId>` để chỉ chạy 1 album).
+
+> Model pretrained của InsightFace chỉ được cấp phép cho mục đích nghiên cứu phi
+> thương mại — cần license từ InsightFace trước khi dùng cho sản phẩm thương mại.
 
 Nếu API Drive trả lỗi `DRIVE_SCOPE_REQUIRED`, hãy mở lại
 `http://localhost:3000/api/auth/google`, đăng nhập lại và chấp nhận quyền

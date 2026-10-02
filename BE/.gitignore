@@ -4,6 +4,8 @@ npm-debug.log
 *.log
 .DS_Store
 
-# Trọng số model face-api (Bước 3.2) — file binary tải qua
+# Model ONNX InsightFace (Bước 3.2) — file binary tải qua
 # `npm run setup:face-models`, không commit vào git.
+models/insightface/
+# Model face-api.js cũ (đã thay bằng InsightFace) — còn sót trên máy dev cũ.
 models/face-api/

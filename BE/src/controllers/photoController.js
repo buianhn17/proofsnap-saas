@@ -6,7 +6,7 @@ const burstClusterModel = require("../models/burstClusterModel");
 const photoFaceEmbeddingModel = require("../models/photoFaceEmbeddingModel");
 const redis = require("../config/redis");
 const { resolveSizePreset, resizeToLongEdge } = require("../services/thumbnailService");
-const { detectFaces } = require("../services/faceEmbeddingService");
+const { detectFaces } = require("../services/arcfaceService");
 const {
   uploadJpeg,
   deleteFile,
