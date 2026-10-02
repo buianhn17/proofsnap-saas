@@ -78,4 +78,24 @@ async function listSelectedForAlbum(albumId) {
   return result.rows;
 }
 
-module.exports = { listByAlbumId, createPhoto, findByAlbumAndId, listSelectedForAlbum };
+// Bước 4.2 (tải từng ảnh trên mobile) — 1 ảnh trong tập ZIP dynamic ở trên (đã được ít nhất
+// 1 khách chọn). null nếu ảnh không thuộc album hoặc chưa ai chọn — chặn khách đoán photoId
+// để tải ảnh gốc không watermark của ảnh nằm ngoài tập được mở khóa.
+async function findSelectedInAlbum(albumId, photoId) {
+  const result = await pool.query(
+    `SELECT id, drive_file_id, original_base_filename
+     FROM photos
+     WHERE album_id = $1 AND id = $2
+       AND EXISTS (SELECT 1 FROM selections s WHERE s.photo_id = photos.id)`,
+    [albumId, photoId]
+  );
+  return result.rows[0] || null;
+}
+
+module.exports = {
+  listByAlbumId,
+  createPhoto,
+  findByAlbumAndId,
+  listSelectedForAlbum,
+  findSelectedInAlbum,
+};

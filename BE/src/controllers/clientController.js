@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("node:crypto");
+const sharp = require("sharp");
 const albumModel = require("../models/albumModel");
 const photoModel = require("../models/photoModel");
 const clientModel = require("../models/clientModel");
@@ -8,7 +9,11 @@ const annotationModel = require("../models/annotationModel");
 const photoFaceEmbeddingModel = require("../models/photoFaceEmbeddingModel");
 const redis = require("../config/redis");
 const { applyWatermark } = require("../services/watermarkService");
-const { resolveSizePreset, resizeToLongEdge } = require("../services/thumbnailService");
+const {
+  resolveSizePreset,
+  resizeToLongEdge,
+  DOWNLOAD_OPTIMIZED_PRESET,
+} = require("../services/thumbnailService");
 const { downloadFileStream, downloadFileBuffer } = require("../services/googleDriveService");
 const { detectFaces, largestFace } = require("../services/arcfaceService");
 const { streamPhotosAsZip } = require("../services/zipStreamService");
@@ -23,11 +28,6 @@ const WATERMARK_CACHE_TTL_SECONDS = 60 * 60 * 24;
 const FACE_MATCH_MAX_DISTANCE = Number(process.env.FACE_MATCH_MAX_DISTANCE) || 0.42;
 const FACE_MATCH_LIMIT = 300;
 
-function invalidAccess(message, code = "INVALID_CLIENT_ACCESS") {
-  const error = new Error(message);
-  error.statusCode = 400;
-  error.code = code;
-  return error;
 // Độ khớp hiển thị cho khách = 1 - cosine distance (FE nhân 100 ra %), chặn trong [0, 1].
 // Kết quả đã lọc distance < FACE_MATCH_MAX_DISTANCE nên thực tế luôn ≥ 1 - ngưỡng (~58%).
 function distanceToSimilarity(distance) {
@@ -35,6 +35,11 @@ function distanceToSimilarity(distance) {
   return Math.round(Math.max(0, Math.min(1, similarity)) * 1000) / 1000;
 }
 
+function invalidAccess(message, code = "INVALID_CLIENT_ACCESS") {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.code = code;
+  return error;
 }
 
 function publicAlbum(album) {
@@ -452,6 +457,105 @@ async function downloadZip(req, res, next) {
   }
 }
 
+// Bước 4.2 (mobile) — cùng điều kiện truy cập với downloadZip: đúng album của phiên, album
+// đang hoạt động, PTG đã mở khóa tải. Trả album nếu hợp lệ, hoặc null sau khi đã gửi lỗi.
+async function loadUnlockedAlbumForDownload(req, res) {
+  const { albumId } = req.params;
+  if (req.client.albumId !== albumId) {
+    res.status(403).json({ error: "FORBIDDEN", message: "Phiên không thuộc album này" });
+    return null;
+  }
+  const album = await albumModel.findPublicById(albumId);
+  if (!album || album.status !== "active") {
+    res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
+    return null;
+  }
+  if (!album.download_zip_unlocked) {
+    res.status(403).json({
+      error: "ZIP_NOT_UNLOCKED",
+      message: "Nhiếp ảnh gia chưa mở khóa tải ảnh hoàn thiện cho album này",
+    });
+    return null;
+  }
+  return album;
+}
+
+function downloadFilename(photo) {
+  const base = (photo.original_base_filename || photo.id).replace(/[^a-zA-Z0-9 _.-]/g, "_");
+  return `${base}.jpg`;
+}
+
+// Bước 4.2 (mobile) — danh sách ảnh hoàn thiện tải được từng tấm (để lưu thẳng vào Thư viện
+// ảnh qua Web Share API), đúng tập ảnh mà downloadZip sẽ nén. mode = "zip_only" khi PTG đã
+// upload ZIP hậu kỳ riêng: ảnh trong ZIP đó là bản đã chỉnh sửa, KHÁC ảnh gốc trong DB, nên
+// không có bản tải từng tấm tương ứng — FE phải dùng ZIP.
+async function listDownloadablePhotos(req, res, next) {
+  try {
+    const album = await loadUnlockedAlbumForDownload(req, res);
+    if (!album) return;
+
+    if (album.zip_drive_file_id) {
+      return res.json({ mode: "zip_only", photos: [] });
+    }
+    const photos = await photoModel.listSelectedForAlbum(album.id);
+    res.json({
+      mode: "per_photo",
+      photos: photos.map((p) => ({ id: p.id, filename: downloadFilename(p) })),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// Bước 4.2 (mobile) — tải 1 ảnh hoàn thiện, KHÔNG watermark (cùng nội dung với ảnh trong ZIP
+// dynamic). ?quality=original (mặc định) stream nguyên file gốc từ Drive; ?quality=optimized
+// trả bản thu nhỏ DOWNLOAD_OPTIMIZED_PRESET.
+async function downloadPhoto(req, res, next) {
+  try {
+    const album = await loadUnlockedAlbumForDownload(req, res);
+    if (!album) return;
+    if (album.zip_drive_file_id) {
+      return res.status(409).json({
+        error: "ZIP_ONLY",
+        message: "Album này chỉ hỗ trợ tải ảnh hoàn thiện dạng file ZIP",
+      });
+    }
+
+    const photo = await photoModel.findSelectedInAlbum(album.id, req.params.photoId);
+    if (!photo) {
+      return res.status(404).json({ error: "PHOTO_NOT_FOUND", message: "Không tìm thấy ảnh" });
+    }
+
+    const filename = downloadFilename(photo);
+    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    // Ảnh gốc không watermark, chỉ dành cho phiên này — không cho proxy/CDN dùng chung cache.
+    res.setHeader("Cache-Control", "private, max-age=3600");
+
+    if (req.query.quality === "optimized") {
+      const original = await downloadFileBuffer(album.photographer_id, photo.drive_file_id);
+      const { width = 0, height = 0 } = await sharp(original).metadata();
+      // Ảnh gốc đã nhỏ hơn bản tối ưu: nén JPEG lại không giảm kích thước mà còn nặng hơn
+      // + giảm chất lượng — trả nguyên ảnh gốc.
+      if (Math.max(width, height) <= DOWNLOAD_OPTIMIZED_PRESET.maxEdgePx) {
+        return res.send(original);
+      }
+      const resized = await resizeToLongEdge(
+        original,
+        DOWNLOAD_OPTIMIZED_PRESET.maxEdgePx,
+        DOWNLOAD_OPTIMIZED_PRESET.quality
+      );
+      return res.send(resized);
+    }
+
+    const stream = await downloadFileStream(album.photographer_id, photo.drive_file_id);
+    stream.on("error", (err) => res.destroy(err));
+    stream.pipe(res);
+  } catch (error) {
+    next(error);
+  }
+}
+
 // Bước 3.1/3.3 — trạng thái hiệu lực vị thành niên của 1 client: ưu tiên override riêng
 // (clients.is_minor_flagged), NULL thì lấy theo mặc định của cả album (albums.is_minor_album)
 // — đúng quy tắc đã ghi ở mục 11 lensproof_schema.sql.
@@ -681,4 +785,6 @@ module.exports = {
   revokeFaceSearchConsent,
   searchByFace,
   downloadZip,
+  listDownloadablePhotos,
+  downloadPhoto,
 };

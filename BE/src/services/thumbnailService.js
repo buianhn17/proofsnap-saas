@@ -8,6 +8,12 @@ const SIZE_PRESETS = {
   preview: { maxEdgePx: 2000, quality: 85 },
 };
 
+// Bản "tối ưu" khi khách tải ảnh hoàn thiện về điện thoại (?quality=optimized ở endpoint
+// /download) — đủ nét để xem/đăng mạng xã hội, nhẹ hơn ảnh gốc ~5-10 lần nên lưu cả chục ảnh
+// 1 lượt trên mạng di động nhanh hơn hẳn. Cố ý KHÔNG đưa vào SIZE_PRESETS: /view áp
+// watermark còn /download thì không, không để /view?size=... trả về bản không watermark.
+const DOWNLOAD_OPTIMIZED_PRESET = { maxEdgePx: 2560, quality: 88 };
+
 function resolveSizePreset(size) {
   return SIZE_PRESETS[size] ?? null;
 }
@@ -24,4 +30,4 @@ async function resizeToLongEdge(buffer, maxEdgePx, quality) {
     .toBuffer();
 }
 
-module.exports = { resolveSizePreset, resizeToLongEdge };
+module.exports = { resolveSizePreset, resizeToLongEdge, DOWNLOAD_OPTIMIZED_PRESET };

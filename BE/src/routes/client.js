@@ -352,6 +352,63 @@ router.get("/:albumId/download-zip", requireClientAuth, clientController.downloa
 
 /**
  * @swagger
+ * /api/public/albums/{albumId}/downloads:
+ *   get:
+ *     summary: Danh sách ảnh hoàn thiện tải được từng tấm (lưu vào Thư viện ảnh trên mobile)
+ *     description: >
+ *       Cùng tập ảnh với download-zip. mode = "zip_only" khi PTG đã upload ZIP hậu kỳ riêng —
+ *       khi đó không có bản tải từng tấm, FE phải dùng download-zip.
+ *     tags: [Client Portal]
+ *     security:
+ *       - clientCookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *     responses:
+ *       200:
+ *         description: "{ mode: 'per_photo' | 'zip_only', photos: [{ id, filename }] }"
+ *       403:
+ *         description: Phiên không thuộc album này, hoặc chưa mở khóa tải (ZIP_NOT_UNLOCKED)
+ */
+router.get("/:albumId/downloads", requireClientAuth, clientController.listDownloadablePhotos);
+
+/**
+ * @swagger
+ * /api/public/albums/{albumId}/photos/{photoId}/download:
+ *   get:
+ *     summary: Tải 1 ảnh hoàn thiện không watermark (cần album đã mở khóa tải)
+ *     tags: [Client Portal]
+ *     security:
+ *       - clientCookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *       - in: path
+ *         name: photoId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: quality
+ *         schema:
+ *           type: string
+ *           enum: [original, optimized]
+ *     responses:
+ *       200:
+ *         description: Dữ liệu ảnh JPEG
+ *       403:
+ *         description: Phiên không thuộc album này, hoặc chưa mở khóa tải (ZIP_NOT_UNLOCKED)
+ *       404:
+ *         description: Ảnh không thuộc tập ảnh hoàn thiện của album
+ *       409:
+ *         description: Album chỉ hỗ trợ tải ZIP (ZIP_ONLY)
+ */
+router.get(
+  "/:albumId/photos/:photoId/download",
+  requireClientAuth,
+  clientController.downloadPhoto
+);
+
+/**
+ * @swagger
  * /api/public/client/logout:
  *   post:
  *     summary: Đăng xuất phiên Client Portal

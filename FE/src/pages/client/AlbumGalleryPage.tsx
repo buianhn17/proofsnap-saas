@@ -7,6 +7,11 @@ import { getErrorMessage } from "../../lib/errors";
 import { useClientAlbum, useIsAlbumExpired } from "../../contexts/ClientAlbumContext";
 import PhotoAnnotationLightbox from "../../components/PhotoAnnotationLightbox";
 import PhotoCompareView from "../../components/PhotoCompareView";
+import BatchDownloadModal, {
+  type DownloadQuality,
+  type DownloadablePhoto,
+} from "../../components/BatchDownloadModal";
+import { isMobileDevice } from "../../lib/mobileDownloadService";
 
 interface PublicPhoto {
   id: string;
@@ -23,6 +28,14 @@ interface PublicPhoto {
 }
 
 type FilterKey = "all" | "suggested" | "bursts";
+
+// GET /api/public/albums/:albumId/downloads — tập ảnh hoàn thiện (giống nội dung ZIP).
+interface DownloadListResponse {
+  mode: "per_photo" | "zip_only";
+  photos: { id: string; filename: string }[];
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 const GRID_GAP_PX = 12;
 const PAGE_SIZE = 24;
@@ -61,6 +74,48 @@ export default function AlbumGalleryPage() {
   const [compareSelection, setCompareSelection] = useState<string[]>([]);
 
   const albumId = album?.id ?? null;
+
+  // Tải ảnh hoàn thiện: PC giữ link ZIP như cũ; điện thoại mở BatchDownloadModal để lưu thẳng
+  // vào Thư viện ảnh theo từng nhóm 10 ảnh.
+  const isMobile = useMemo(() => isMobileDevice(), []);
+  const [downloadList, setDownloadList] = useState<{ id: string; filename: string }[] | null>(
+    null
+  );
+  const [downloadQuality, setDownloadQuality] = useState<DownloadQuality>("original");
+  const [isLoadingDownloads, setIsLoadingDownloads] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const zipUrl = `${API_BASE_URL}/api/public/albums/${albumId}/download-zip`;
+
+  const downloadablePhotos = useMemo<DownloadablePhoto[]>(
+    () =>
+      (downloadList ?? []).map((p) => ({
+        id: p.id,
+        filename: p.filename,
+        url: `${API_BASE_URL}/api/public/albums/${albumId}/photos/${p.id}/download?quality=${downloadQuality}`,
+      })),
+    [downloadList, downloadQuality, albumId]
+  );
+
+  async function openMobileDownload() {
+    if (!albumId) return;
+    setIsLoadingDownloads(true);
+    setDownloadError(null);
+    try {
+      const { data } = await api.get<DownloadListResponse>(
+        `/api/public/albums/${albumId}/downloads`
+      );
+      if (data.mode === "zip_only") {
+        // PTG đã upload ZIP hậu kỳ riêng — ảnh trong đó khác ảnh gốc, chỉ có thể tải ZIP.
+        window.location.assign(zipUrl);
+        return;
+      }
+      setDownloadList(data.photos);
+    } catch (err) {
+      setDownloadError(getErrorMessage(err, "Không lấy được danh sách ảnh để tải"));
+    } finally {
+      setIsLoadingDownloads(false);
+    }
+  }
 
   useEffect(() => {
     if (!albumId) return;
@@ -233,14 +288,25 @@ export default function AlbumGalleryPage() {
             <option value="suggested">Ảnh gợi ý AI</option>
             <option value="bursts">Cụm ảnh giống nhau</option>
           </select>
-          {album.download_zip_unlocked && (
-            <a
-              href={`${import.meta.env.VITE_API_BASE_URL}/api/public/albums/${albumId}/download-zip`}
-              className="rounded-[4px] border border-[#2d6a3f] bg-[#1a3d24] px-3 py-2 text-sm font-medium text-[#86e8a8] hover:bg-[#204d2c]"
-            >
-              Tải ZIP ảnh hoàn thiện
-            </a>
-          )}
+          {album.download_zip_unlocked &&
+            (isMobile ? (
+              <button
+                type="button"
+                onClick={openMobileDownload}
+                disabled={isLoadingDownloads}
+                className="rounded-[4px] border border-[#2d6a3f] bg-[#1a3d24] px-3 py-2 text-sm font-medium text-[#86e8a8] hover:bg-[#204d2c] disabled:opacity-60"
+              >
+                {isLoadingDownloads ? "Đang lấy danh sách…" : "Lưu ảnh hoàn thiện"}
+              </button>
+            ) : (
+              <a
+                href={zipUrl}
+                className="rounded-[4px] border border-[#2d6a3f] bg-[#1a3d24] px-3 py-2 text-sm font-medium text-[#86e8a8] hover:bg-[#204d2c]"
+              >
+                Tải ZIP ảnh hoàn thiện
+              </a>
+            ))}
+          {downloadError && <span className="text-sm text-[#f2b8b5]">{downloadError}</span>}
           <button
             type="button"
             onClick={() => {
@@ -384,6 +450,19 @@ export default function AlbumGalleryPage() {
           isSelected={selected.has(openPhotoId)}
           onToggleSelect={() => toggleHeart(openPhotoId)}
           onClose={() => setOpenPhotoId(null)}
+        />
+      )}
+
+      {downloadList !== null && (
+        <BatchDownloadModal
+          // Đổi chất lượng -> remount, bắt đầu lại từ nhóm 1 với URL ảnh mới.
+          key={downloadQuality}
+          isOpen
+          onClose={() => setDownloadList(null)}
+          selectedPhotos={downloadablePhotos}
+          quality={downloadQuality}
+          onQualityChange={setDownloadQuality}
+          zipFallbackUrl={zipUrl}
         />
       )}
 
