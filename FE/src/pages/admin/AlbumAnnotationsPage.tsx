@@ -56,10 +56,10 @@ interface FilenameExportResponse {
 }
 
 const MARKER_COLORS = [
-  { border: "#ffb4ab", dot: "#ffb4ab" },
-  { border: "#ffb95e", dot: "#ffb95e" },
-  { border: "#a9c7ff", dot: "#a9c7ff" },
-  { border: "#86e8a8", dot: "#86e8a8" },
+  { border: "#f87171", dot: "#f87171" },
+  { border: "#fbbf24", dot: "#fbbf24" },
+  { border: "#818cf8", dot: "#818cf8" },
+  { border: "#34d399", dot: "#34d399" },
 ];
 
 function formatTime(value: string) {
@@ -212,35 +212,41 @@ export default function AlbumAnnotationsPage() {
 
   if (error) {
     return (
-      <p className="rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
+      <div className="rounded-2xl border border-rose-500/20 bg-rose-950/40 p-4 text-sm text-rose-300">
         {error}
-      </p>
+      </div>
     );
   }
 
   if (!exportData || !album) {
-    return <p className="text-sm text-[#c1c6d4]">Đang tải...</p>;
+    return (
+      <div className="flex items-center justify-center p-12 text-sm text-zinc-400">
+        <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
+        Đang tải yêu cầu chỉnh sửa...
+      </div>
+    );
   }
 
   return (
-    <div className="-m-8 flex h-screen flex-col bg-[#131313]">
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#43474f] bg-[#201f1f] px-6">
-        <div className="flex items-center gap-1.5 text-sm text-[#c1c6d4]">
-          <Link to="/admin/albums" className="hover:text-[#e5e2e1]">
-            Bộ sưu tập
+    <div className="-m-6 sm:-m-8 lg:-m-10 flex h-screen flex-col bg-[#090a0f] text-slate-100">
+      {/* Top Header */}
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-950/80 px-6 backdrop-blur-md">
+        <div className="flex items-center gap-2 text-xs text-zinc-400 font-mono">
+          <Link to="/admin/albums" className="hover:text-white transition-colors">
+            Kho Album
           </Link>
-          <span>›</span>
-          <Link to={`/admin/albums/${albumId}`} className="hover:text-[#e5e2e1]">
+          <span className="text-zinc-600">/</span>
+          <Link to={`/admin/albums/${albumId}`} className="hover:text-white transition-colors">
             {album.name}
           </Link>
-          <span>›</span>
-          <span className="text-[#e5e2e1]">Yêu cầu chỉnh sửa</span>
+          <span className="text-zinc-600">/</span>
+          <span className="text-indigo-400 font-semibold">Yêu cầu chỉnh sửa</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <button
             type="button"
             onClick={() => setNoteMode("client_reply")}
-            className="rounded-[4px] border border-[#43474f] px-4 py-2 text-sm font-medium text-[#e5e2e1] hover:bg-[#2a2a2a]"
+            className="rounded-xl border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:bg-white/10 hover:text-white"
           >
             Phản hồi khách hàng
           </button>
@@ -248,59 +254,68 @@ export default function AlbumAnnotationsPage() {
             type="button"
             onClick={handleCompleteEdits}
             disabled={!currentPhoto || isCompleting}
-            className="rounded-[4px] bg-[#a9c7ff] px-4 py-2 text-sm font-semibold text-white hover:bg-[#93b6f5] disabled:opacity-50"
+            className="rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-50"
           >
-            {isCompleting ? "Đang lưu..." : "Hoàn tất chỉnh sửa"}
+            {isCompleting ? "Đang lưu..." : "Hoàn tất ảnh này"}
           </button>
         </div>
       </div>
 
       {photos.length === 0 ? (
-        <p className="p-6 text-sm text-[#c1c6d4]">
-          Chưa có ảnh nào được khách thả tim hoặc ghi chú.
-        </p>
+        <div className="flex flex-1 flex-col items-center justify-center p-12 text-center text-zinc-400">
+          <svg className="h-12 w-12 text-zinc-600 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+          </svg>
+          <p className="text-sm font-semibold text-zinc-300">Chưa có ảnh nào có yêu cầu chỉnh sửa</p>
+          <p className="text-xs text-zinc-500 mt-1">Khi khách hàng thả tim hoặc vẽ ghi chú khoanh vùng, danh sách sẽ xuất hiện tại đây.</p>
+        </div>
       ) : (
         <div className="flex flex-1 overflow-hidden">
+          {/* Center Image Canvas */}
           <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex items-center justify-between border-b border-[#2a2a2a] px-6 py-3">
-              <div className="rounded-[4px] border border-[#43474f] bg-[#1c1b1b] px-3 py-1.5 text-xs text-[#c1c6d4]">
-                Chuỗi tìm kiếm Lightroom: {exportData.filename_list.length} tên file
+            {/* Toolbar for Lightroom export & Photo pagination */}
+            <div className="flex items-center justify-between border-b border-white/10 bg-zinc-900/40 px-6 py-2.5 backdrop-blur-sm">
+              <div className="rounded-xl border border-white/10 bg-zinc-950/60 px-3 py-1 text-xs text-zinc-300 font-mono">
+                Tìm kiếm Lightroom: {exportData.filename_list.length} ảnh đã chọn
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleCopy}
                   disabled={!exportData.search_string}
-                  className="rounded-[4px] border border-[#43474f] px-3 py-1.5 text-xs font-medium text-[#e5e2e1] hover:bg-[#2a2a2a] disabled:opacity-50"
+                  className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-300 transition-colors hover:bg-indigo-500/20 disabled:opacity-50"
                 >
-                  {copied ? "Đã sao chép!" : "Sao chép chuỗi tên file"}
+                  {copied ? "✓ Đã sao chép chuỗi!" : "Copy chuỗi tìm kiếm Lightroom"}
                 </button>
+                <div className="h-4 w-px bg-white/10 mx-1" />
                 <button
                   type="button"
                   onClick={() => setPhotoIndex((i) => Math.max(0, i - 1))}
                   disabled={photoIndex === 0}
-                  className="rounded-[4px] border border-[#43474f] px-2 py-1 text-[#e5e2e1] hover:bg-[#2a2a2a] disabled:opacity-30"
+                  className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white hover:bg-white/10 disabled:opacity-30"
                 >
                   ←
                 </button>
-                <span className="text-xs text-[#c1c6d4]">
+                <span className="text-xs text-zinc-400 font-mono">
                   {photoIndex + 1} / {photos.length}
                 </span>
                 <button
                   type="button"
                   onClick={() => setPhotoIndex((i) => Math.min(photos.length - 1, i + 1))}
                   disabled={photoIndex === photos.length - 1}
-                  className="rounded-[4px] border border-[#43474f] px-2 py-1 text-[#e5e2e1] hover:bg-[#2a2a2a] disabled:opacity-30"
+                  className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white hover:bg-white/10 disabled:opacity-30"
                 >
                   →
                 </button>
               </div>
             </div>
 
-            <div className="flex flex-1 items-center justify-center overflow-auto p-6">
+            {/* Canvas Viewport */}
+            <div className="flex flex-1 items-center justify-center overflow-auto p-6 bg-zinc-950/40">
               {currentPhoto && (
                 <div
-                  className="relative min-h-[400px] shrink-0 border border-[#2a2a2a] bg-[#1c1b1b]"
+                  className="relative min-h-[400px] shrink-0 rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl transition-all"
                   style={{ width: `${zoom}%`, maxWidth: "100%" }}
                 >
                   <img
@@ -352,7 +367,7 @@ export default function AlbumAnnotationsPage() {
                         top: `${a.pos_y_pct}%`,
                         transform: "translate(-50%, -170%)",
                       }}
-                      className="rounded bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-white"
+                      className="rounded-md bg-black/80 px-1.5 py-0.5 text-[10px] font-mono font-bold text-white border border-white/20 shadow-md backdrop-blur-md"
                     >
                       #{index + 1}
                     </span>
@@ -361,20 +376,21 @@ export default function AlbumAnnotationsPage() {
               )}
             </div>
 
-            <div className="flex shrink-0 items-center justify-center gap-2 border-t border-[#2a2a2a] px-6 py-3">
-              <div className="flex items-center gap-2 rounded-[4px] border border-[#43474f] bg-[#1c1b1b] px-3 py-1.5">
+            {/* Zoom controls */}
+            <div className="flex shrink-0 items-center justify-center gap-2 border-t border-white/10 bg-zinc-950/60 px-6 py-2.5">
+              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-900/80 px-3 py-1">
                 <button
                   type="button"
                   onClick={() => setZoom((z) => Math.max(25, z - 25))}
-                  className="text-[#c1c6d4] hover:text-[#e5e2e1]"
+                  className="text-zinc-400 hover:text-white"
                 >
                   🔍-
                 </button>
-                <span className="w-12 text-center text-sm text-[#e5e2e1]">{zoom}%</span>
+                <span className="w-12 text-center text-xs font-mono text-zinc-200">{zoom}%</span>
                 <button
                   type="button"
                   onClick={() => setZoom((z) => Math.min(300, z + 25))}
-                  className="text-[#c1c6d4] hover:text-[#e5e2e1]"
+                  className="text-zinc-400 hover:text-white"
                 >
                   🔍+
                 </button>
@@ -382,101 +398,99 @@ export default function AlbumAnnotationsPage() {
             </div>
           </div>
 
-          <div className="flex w-[375px] shrink-0 flex-col border-l border-[#43474f] bg-[#1c1b1b]">
-            <div className="border-b border-[#43474f] px-6 py-5">
-              <h2 className="text-xl font-semibold text-[#e5e2e1]">Chi tiết yêu cầu</h2>
+          {/* Right Sidebar */}
+          <div className="flex w-[380px] shrink-0 flex-col border-l border-white/10 bg-zinc-950/90 backdrop-blur-xl">
+            <div className="border-b border-white/10 px-6 py-4">
+              <h2 className="text-sm font-bold text-white">Yêu cầu & Ghi chú</h2>
               {currentPhoto && (
-                <p className="mt-1 text-sm text-[#c1c6d4]">
-                  Ảnh {currentPhoto.original_base_filename}
+                <p className="mt-0.5 text-xs font-mono text-zinc-400">
+                  {currentPhoto.original_base_filename}
                 </p>
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {actionError && (
-                <p className="mb-3 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
+                <div className="rounded-xl border border-rose-500/20 bg-rose-950/40 p-2.5 text-xs text-rose-300">
                   {actionError}
-                </p>
+                </div>
               )}
 
               {sortedAnnotations.length === 0 && (
-                <p className="text-sm text-[#c1c6d4]">
-                  Ảnh này chưa có ghi chú khoanh vùng nào từ khách.
+                <p className="text-xs text-zinc-500 text-center py-6">
+                  Ảnh này chưa có ghi chú khoanh vùng từ khách hàng.
                 </p>
               )}
 
-              <div className="flex flex-col gap-4">
-                {sortedAnnotations.map((a, index) => {
-                  const color = MARKER_COLORS[index % MARKER_COLORS.length];
-                  const isDone = a.status === "done";
-                  const isBusy = pendingStatusIds.has(a.id);
-                  return (
-                    <div
-                      key={a.id}
-                      className="rounded-[4px] border border-[#43474f] bg-[#131313] p-4"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="flex size-5 items-center justify-center rounded-full text-[10px] font-semibold text-[#131313]"
-                            style={{ backgroundColor: color.dot }}
-                          >
-                            {index + 1}
-                          </span>
-                          <span
-                            className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.6px] ${
-                              isDone
-                                ? "border-[#2d6a3f] bg-[#1a3d24] text-[#86e8a8]"
-                                : "border-[#6b2e2e] bg-[#3d1a1a] text-[#ffb4ab]"
-                            }`}
-                          >
-                            {isDone ? "Done" : "Pending"}
-                          </span>
-                        </div>
-                        <span className="text-xs text-[#8b919e]">
-                          {formatTime(a.created_at)}
+              {sortedAnnotations.map((a, index) => {
+                const color = MARKER_COLORS[index % MARKER_COLORS.length];
+                const isDone = a.status === "done";
+                const isBusy = pendingStatusIds.has(a.id);
+                return (
+                  <div
+                    key={a.id}
+                    className="rounded-2xl border border-white/10 bg-zinc-900/50 p-3.5 transition-colors hover:border-white/20"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-black font-mono"
+                          style={{ backgroundColor: color.dot }}
+                        >
+                          {index + 1}
+                        </span>
+                        <span
+                          className={`rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider font-mono ${
+                            isDone
+                              ? "border-emerald-500/30 bg-emerald-950/60 text-emerald-300"
+                              : "border-amber-500/30 bg-amber-950/60 text-amber-300"
+                          }`}
+                        >
+                          {isDone ? "Đã xong" : "Chờ sửa"}
                         </span>
                       </div>
-                      <p
-                        className={`mt-2 text-sm ${
-                          isDone ? "text-[#5a5f68] line-through" : "text-[#e5e2e1]"
-                        }`}
-                      >
-                        {a.note_text}
-                      </p>
-                      <p className="mt-1 text-xs text-[#8b919e]">
-                        {a.client_name} · {a.client_phone}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => toggleAnnotationStatus(a)}
-                        disabled={isBusy}
-                        className={`mt-2 text-xs font-medium hover:underline disabled:opacity-50 ${
-                          isDone ? "text-[#86e8a8]" : "text-[#a9c7ff]"
-                        }`}
-                      >
-                        {isBusy
-                          ? "Đang lưu..."
-                          : isDone
-                            ? "✓ Đã xử lý — bấm để mở lại"
-                            : "✓ Đánh dấu hoàn tất"}
-                      </button>
+                      <span className="text-[11px] text-zinc-500 font-mono">
+                        {formatTime(a.created_at)}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
+                    <p
+                      className={`mt-2 text-xs leading-relaxed ${
+                        isDone ? "text-zinc-500 line-through" : "text-zinc-200"
+                      }`}
+                    >
+                      {a.note_text}
+                    </p>
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      {a.client_name} • {a.client_phone}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => toggleAnnotationStatus(a)}
+                      disabled={isBusy}
+                      className={`mt-2.5 text-xs font-semibold hover:underline disabled:opacity-50 ${
+                        isDone ? "text-emerald-400" : "text-indigo-400"
+                      }`}
+                    >
+                      {isBusy
+                        ? "Đang lưu..."
+                        : isDone
+                        ? "✓ Đã xử lý (Click để mở lại)"
+                        : "✓ Đánh dấu hoàn tất"}
+                    </button>
+                  </div>
+                );
+              })}
 
               {currentPhoto && currentPhoto.notes.length > 0 && (
-                <div className="mt-6 flex flex-col gap-3 border-t border-[#2a2a2a] pt-4">
-                  <p className="text-xs font-medium uppercase tracking-[0.6px] text-[#8b919e]">
-                    Ghi chú & phản hồi
+                <div className="mt-6 flex flex-col gap-2.5 border-t border-white/10 pt-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 font-mono">
+                    Lịch sử phản hồi
                   </p>
                   {currentPhoto.notes.map((note) => (
-                    <div key={note.id} className="rounded-[4px] bg-[#131313] p-3">
-                      <p className="text-sm text-[#e5e2e1]">{note.note_text}</p>
-                      <p className="mt-1 text-xs text-[#8b919e]">
-                        {note.kind === "client_reply" ? "Phản hồi gửi khách" : "Ghi chú nội bộ"}{" "}
-                        · {formatTime(note.created_at)}
+                    <div key={note.id} className="rounded-xl border border-white/5 bg-zinc-900/30 p-3">
+                      <p className="text-xs text-zinc-200">{note.note_text}</p>
+                      <p className="mt-1 text-[10px] text-zinc-500 font-mono">
+                        {note.kind === "client_reply" ? "Phản hồi khách" : "Ghi chú nội bộ"} • {formatTime(note.created_at)}
                       </p>
                     </div>
                   ))}
@@ -484,16 +498,17 @@ export default function AlbumAnnotationsPage() {
               )}
             </div>
 
-            <div className="border-t border-[#43474f] p-3">
+            {/* Reply / Internal Note Input Box */}
+            <div className="border-t border-white/10 p-4 bg-zinc-950/60">
               {noteMode === "client_reply" && (
-                <p className="mb-1.5 px-1 text-xs font-medium text-[#a9c7ff]">
+                <p className="mb-2 text-[11px] font-medium text-indigo-400">
                   Đang soạn phản hồi gửi khách —{" "}
                   <button
                     type="button"
                     onClick={() => setNoteMode("internal")}
-                    className="underline"
+                    className="underline text-zinc-400 hover:text-white"
                   >
-                    chuyển về ghi chú nội bộ
+                    chuyển sang ghi chú nội bộ
                   </button>
                 </p>
               )}
@@ -507,16 +522,16 @@ export default function AlbumAnnotationsPage() {
                   }}
                   placeholder={
                     noteMode === "client_reply"
-                      ? "Viết phản hồi gửi khách..."
-                      : "Thêm ghi chú nội bộ..."
+                      ? "Viết phản hồi cho khách..."
+                      : "Thêm ghi chú nội bộ thợ..."
                   }
-                  className="flex-1 rounded-[4px] border border-[#43474f] bg-[#131313] px-3 py-2 text-sm text-[#e5e2e1] placeholder:text-[#5a5958] focus:outline-none focus:ring-1 focus:ring-[#a9c7ff]"
+                  className="flex-1 rounded-xl border border-white/10 bg-zinc-900/80 px-3 py-2 text-xs text-white placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
                 <button
                   type="button"
                   onClick={handleAddNote}
                   disabled={!noteText.trim() || isPostingNote}
-                  className="flex size-9 shrink-0 items-center justify-center rounded-[4px] bg-[#a9c7ff] text-white hover:bg-[#93b6f5] disabled:opacity-50"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 transition-colors"
                   aria-label="Gửi"
                 >
                   ➤

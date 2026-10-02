@@ -5,13 +5,9 @@ import { getErrorMessage } from "../../lib/errors";
 import { COMPRESSION_PRESETS } from "../../lib/compressionPresets";
 import { PIN_PATTERN } from "../../lib/validation";
 import type { Album } from "../../lib/types";
-import closeIcon from "../../assets/icons/close.svg";
-import infoIcon from "../../assets/icons/info.svg";
-import lockSmallIcon from "../../assets/icons/lock-small.svg";
-import chevronDownIcon from "../../assets/icons/chevron-down.svg";
 
 const inputClass =
-  "w-full rounded-[4px] border border-[#2a2a2a] bg-[#131313] px-[17px] py-[19px] text-base text-[#e5e2e1] placeholder:text-[#5a5958] focus:outline-none focus:ring-1 focus:ring-[#a9c7ff]";
+  "w-full rounded-xl border border-white/10 bg-zinc-900/80 px-4 py-3 text-sm text-white placeholder:text-zinc-500 transition-all focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 [color-scheme:dark]";
 
 export default function CreateAlbumPage() {
   const navigate = useNavigate();
@@ -37,7 +33,7 @@ export default function CreateAlbumPage() {
       return;
     }
     if (!PIN_PATTERN.test(pin)) {
-      setError("PIN phải là chuỗi số từ 4 đến 12 ký tự");
+      setError("PIN phải là chuỗi số từ 4 đến 12 chữ số");
       return;
     }
 
@@ -64,98 +60,116 @@ export default function CreateAlbumPage() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-[2px]">
-      <div className="flex w-full max-w-[600px] flex-col overflow-hidden rounded-lg border border-[#2a2a2a] bg-[#201f1f] shadow-[0px_25px_50px_-12px_rgba(0,0,0,0.25)]">
-        <div className="flex items-center justify-between border-b border-[#2a2a2a] px-6 pb-[17px] pt-4">
-          <h1 className="text-xl font-semibold text-[#e5e2e1]">
-            Tạo album mới
-          </h1>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in-up">
+      <div className="flex max-h-[90vh] w-full max-w-[620px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/80 backdrop-blur-2xl animate-scale-in">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect width="18" height="18" x="3" y="3" rx="2" />
+                <line x1="12" y1="8" x2="12" y2="16" />
+                <line x1="8" y1="12" x2="16" y2="12" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white">Tạo bộ sưu tập mới</h2>
+              <p className="text-xs text-zinc-400">Thiết lập cấu hình bảo vệ và chọn ảnh cho khách</p>
+            </div>
+          </div>
           <button
             type="button"
             onClick={handleClose}
             aria-label="Đóng"
-            className="flex size-8 items-center justify-center rounded-xl hover:bg-[#2a2a2a]"
+            className="flex h-8 w-8 items-center justify-center rounded-xl text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
           >
-            <img src={closeIcon} alt="" className="size-3.5" />
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="flex max-h-[calc(100vh-160px)] flex-col overflow-auto"
-        >
-          <div className="grid grid-cols-1 gap-6 p-6 sm:grid-cols-2">
-            <div className="flex flex-col gap-2 sm:col-span-2">
-              <label className="font-mono text-xs font-medium uppercase tracking-[0.6px] text-[#c1c6d4]">
-                Tên album
+        {/* Modal Form */}
+        <form onSubmit={handleSubmit} className="flex flex-col overflow-y-auto">
+          <div className="grid grid-cols-1 gap-5 p-6 sm:grid-cols-2">
+            {/* Album Name */}
+            <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                Tên album <span className="text-rose-400">*</span>
               </label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="VD: Đám cưới Minh & Lan"
+                placeholder="VD: Đám cưới Hoàng & Thảo — Tiệc tối 2026"
                 className={inputClass}
+                autoFocus
               />
             </div>
 
-            <div className="flex flex-col gap-2">
+            {/* PIN Code */}
+            <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
-                <label className="font-mono text-xs font-medium uppercase tracking-[0.6px] text-[#c1c6d4]">
-                  Mã PIN
+                <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                  Mã PIN bảo mật <span className="text-rose-400">*</span>
                 </label>
-                <img
-                  src={infoIcon}
-                  alt=""
-                  title="Khách cần nhập mã PIN này để xem album"
-                  className="size-[13.333px]"
-                />
+                <span className="text-[11px] text-zinc-500">4-12 số</span>
               </div>
               <div className="relative">
-                <img
-                  src={lockSmallIcon}
-                  alt=""
-                  className="pointer-events-none absolute left-4 top-1/2 h-[15.75px] w-3 -translate-y-1/2"
-                />
+                <svg
+                  className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
                 <input
                   type="text"
                   inputMode="numeric"
                   value={pin}
                   onChange={(e) => setPin(e.target.value)}
-                  placeholder="0000"
-                  className={`${inputClass} py-[19px] pl-10 tracking-[1.6px]`}
+                  placeholder="VD: 1234"
+                  className={`${inputClass} pl-10 font-mono tracking-widest`}
                 />
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label className="font-mono text-xs font-medium uppercase tracking-[0.6px] text-[#c1c6d4]">
-                Giới hạn số ảnh chọn
+            {/* Max Selectable Photos */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                Số ảnh chọn tối đa
               </label>
               <input
                 type="number"
                 min={1}
                 value={maxSelectablePhotos}
                 onChange={(e) => setMaxSelectablePhotos(e.target.value)}
-                placeholder="Để trống nếu không giới hạn"
+                placeholder="Để trống = Không giới hạn"
                 className={inputClass}
               />
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label className="font-mono text-xs font-medium uppercase tracking-[0.6px] text-[#c1c6d4]">
+            {/* Deadline */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
                 Hạn chót chọn ảnh
               </label>
               <input
                 type="date"
                 value={selectionDeadline}
                 onChange={(e) => setSelectionDeadline(e.target.value)}
-                className={`${inputClass} [color-scheme:dark]`}
+                className={inputClass}
               />
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label className="font-mono text-xs font-medium uppercase tracking-[0.6px] text-[#c1c6d4]">
-                Chất lượng nén ảnh khi tải lên
+            {/* Compression Preset */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                Mức nén ảnh preview
               </label>
               <div className="relative">
                 <select
@@ -164,65 +178,77 @@ export default function CreateAlbumPage() {
                   className={`${inputClass} appearance-none pr-10`}
                 >
                   {COMPRESSION_PRESETS.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.labelVi} — {preset.jpegQuality}%, cạnh dài tối đa{" "}
-                      {preset.maxLongEdgePx}px
+                    <option key={preset.id} value={preset.id} className="bg-zinc-900 text-white">
+                      {preset.labelVi} — {preset.jpegQuality}% ({preset.maxLongEdgePx}px)
                     </option>
                   ))}
                 </select>
-                <img
-                  src={chevronDownIcon}
-                  alt=""
-                  className="pointer-events-none absolute right-4 top-1/2 h-[5.55px] w-[9px] -translate-y-1/2"
-                />
+                <svg
+                  className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
               </div>
             </div>
 
-            <div className="border-t border-[#2a2a2a] sm:col-span-2" />
-
-            <label className="flex items-start justify-between gap-4 rounded-[4px] border border-[#2a2a2a] bg-[#1c1b1b] p-[17px] sm:col-span-2">
-              <span className="flex flex-col gap-1">
-                <span className="text-base font-medium text-[#e5e2e1]">
-                  Bật watermark bảo vệ bản quyền
-                </span>
-                <span className="text-sm text-[#c1c6d4]">
-                  Áp dụng lớp phủ mờ có dạng [Tên khách hàng] — [Số điện thoại]
-                  lên toàn bộ ảnh trong thư viện khách hàng.
-                </span>
-              </span>
-              <span className="relative mt-1 inline-flex h-6 w-11 shrink-0">
-                <input
-                  type="checkbox"
-                  checked={watermarkEnabled}
-                  onChange={(e) => setWatermarkEnabled(e.target.checked)}
-                  className="peer sr-only"
-                />
-                <span className="absolute inset-0 rounded-full border border-[#2a2a2a] bg-[#414752] transition-colors peer-checked:bg-[#5a9cff]" />
-                <span className="absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform peer-checked:translate-x-5" />
-              </span>
-            </label>
+            {/* Watermark Toggle */}
+            <div className="sm:col-span-2">
+              <label className="flex cursor-pointer items-start justify-between gap-4 rounded-2xl border border-white/10 bg-zinc-900/50 p-4 transition-colors hover:bg-zinc-900/80">
+                <div className="flex flex-col gap-1">
+                  <span className="text-sm font-semibold text-white">
+                    Bảo vệ bản quyền Watermark
+                  </span>
+                  <span className="text-xs text-zinc-400">
+                    Áp dụng lớp phủ mờ [Tên khách hàng] — [SĐT] lên toàn bộ ảnh trong Client Portal để chống chụp màn hình trái phép.
+                  </span>
+                </div>
+                <div className="relative mt-1 inline-flex h-6 w-11 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={watermarkEnabled}
+                    onChange={(e) => setWatermarkEnabled(e.target.checked)}
+                    className="peer sr-only"
+                  />
+                  <div className="h-6 w-11 rounded-full border border-white/10 bg-zinc-800 transition-colors peer-checked:bg-indigo-600" />
+                  <div className="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition-transform peer-checked:translate-x-5" />
+                </div>
+              </label>
+            </div>
           </div>
 
+          {/* Error Message */}
           {error && (
-            <p className="mx-6 mb-4 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
+            <div className="mx-6 mb-4 rounded-xl border border-rose-500/20 bg-rose-950/40 p-3 text-xs text-rose-300">
               {error}
-            </p>
+            </div>
           )}
 
-          <div className="flex items-center justify-end gap-4 border-t border-[#2a2a2a] bg-[#0e0e0e] px-6 py-4">
+          {/* Footer Actions */}
+          <div className="flex items-center justify-end gap-3 border-t border-white/10 bg-zinc-900/60 px-6 py-4">
             <button
               type="button"
               onClick={handleClose}
-              className="rounded-[4px] border border-[#2a2a2a] px-[25px] py-[9px] text-sm text-[#e5e2e1] hover:bg-[#2a2a2a]"
+              className="rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/5 hover:text-white"
             >
-              Hủy
+              Hủy bỏ
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="rounded-[4px] bg-[#5a9cff] px-6 py-2 text-sm font-medium text-[#003369] hover:bg-[#4a8cef] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-50"
             >
-              {isSubmitting ? "Đang tạo..." : "Tạo album"}
+              {isSubmitting ? (
+                <>
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <span>Đang tạo...</span>
+                </>
+              ) : (
+                <span>Tạo album ngay</span>
+              )}
             </button>
           </div>
         </form>
