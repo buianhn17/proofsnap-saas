@@ -33,5 +33,7 @@ export interface Photo {
   eye_status: "open" | "squint" | "closed" | null;
   culling_flag: "green" | "yellow" | "red" | null;
   is_best_in_cluster: boolean;
+  /** Embedding khuôn mặt cho AI Face Search được trích nền sau upload — 'pending' là chưa xong. */
+  face_index_status?: "pending" | "done" | "failed";
   created_at: string;
 }

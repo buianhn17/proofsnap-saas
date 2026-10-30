@@ -6,7 +6,7 @@ import {
   type DragEvent,
   type FormEvent,
 } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
 import { PIN_PATTERN } from "../../lib/validation";
@@ -20,6 +20,21 @@ import PhotoUploadPanel, {
   type UploadQueueItem,
 } from "../../components/PhotoUploadPanel";
 import LocalFolderPicker from "../../components/LocalFolderPicker";
+
+// Cùng thứ tự với BE (photoModel.js ALBUM_PHOTO_ORDER): theo giờ chụp, ảnh không có giờ chụp
+// xếp sau theo tên file.
+function comparePhotos(a: Photo, b: Photo): number {
+  if (a.captured_at !== b.captured_at) {
+    if (a.captured_at === null) return 1;
+    if (b.captured_at === null) return -1;
+    const byTime = Date.parse(a.captured_at) - Date.parse(b.captured_at);
+    if (byTime !== 0) return byTime;
+  }
+  return (
+    a.original_base_filename.localeCompare(b.original_base_filename) ||
+    a.created_at.localeCompare(b.created_at)
+  );
+}
 
 function formatDateTime(value: string | null) {
   if (!value) return "Không giới hạn";
@@ -48,8 +63,19 @@ interface AlbumDetailLocationState {
 export default function AlbumDetailPage() {
   const { albumId } = useParams<{ albumId: string }>();
   const location = useLocation();
-  const keptUploadItems = (location.state as AlbumDetailLocationState | null)
-    ?.keptUploadItems;
+  const navigate = useNavigate();
+  // Ảnh "giữ" từ trang Cull: nhận đúng 1 lần rồi xoá khỏi history state. State của history
+  // (kể cả các File) còn nguyên sau F5/Back — không xoá thì mỗi lần tải lại trang album là
+  // upload lại toàn bộ, ảnh bị trùng.
+  const [keptUploadItems] = useState(
+    () => (location.state as AlbumDetailLocationState | null)?.keptUploadItems
+  );
+  useEffect(() => {
+    if ((location.state as AlbumDetailLocationState | null)?.keptUploadItems) {
+      navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [album, setAlbum] = useState<Album | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -119,7 +145,10 @@ export default function AlbumDetailPage() {
   }
 
   function handleUploaded(photo: Photo) {
-    setPhotos((prev) => [photo, ...prev]);
+    // BE trả 200 kèm ảnh đã có khi nhận ra request lặp (client_upload_id) — không thêm trùng.
+    setPhotos((prev) =>
+      prev.some((p) => p.id === photo.id) ? prev : [...prev, photo].sort(comparePhotos)
+    );
   }
 
   function handleDropFiles(event: DragEvent<HTMLDivElement>) {

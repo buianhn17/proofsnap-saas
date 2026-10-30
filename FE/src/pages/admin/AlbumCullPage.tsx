@@ -34,6 +34,7 @@ import { classifyCullingFlag, type CullingFlag } from "../../lib/culling/culling
 import { groupScenesAndBursts } from "../../lib/culling/sceneGrouping";
 import {
   scoreBursts,
+  scorePhoto,
   type PhotoAnalysisResult,
   type RejectReason,
 } from "../../lib/culling/burstScoring";
@@ -736,15 +737,28 @@ export default function AlbumCullPage() {
       }
     }
 
-    const keptUploadItems: UploadQueueItem[] = items
+    // Upload theo thứ tự chụp (buổi chụp -> cụm burst -> ảnh) — ảnh đầu buổi lên Drive trước.
+    // Kèm kết quả AI đã có để BE lưu và để bước chuẩn bị upload dùng lại hộp khuôn mặt (cắt
+    // khuôn mặt cho Face Search) thay vì dò lại.
+    const keptUploadItems: UploadQueueItem[] = scenes
+      .flatMap((scene) => scene.bursts.flatMap((burst) => burst.items))
       .filter((item) => (decisions[item.file.relativePath] ?? "yellow") === "green")
       .map((item) => {
-        const grouping = groupingByPath.get(item.file.relativePath);
+        const path = item.file.relativePath;
+        const grouping = groupingByPath.get(path);
+        const { eyeStatus } = item.metrics;
         return {
           file: item.file.file,
           sceneId: grouping ? sceneIdMap.get(grouping.localSceneId) : undefined,
           burstClusterId: grouping ? burstIdMap.get(grouping.localBurstId) : undefined,
           isBestInCluster: grouping?.isBest ?? false,
+          // Ảnh phân tích lỗi không có kết quả dò mặt — để bước chuẩn bị upload tự dò.
+          faceBoxes: item.error ? undefined : item.metrics.faces.map((face) => face.box),
+          sharpnessScore: item.error ? undefined : Math.round(scorePhoto(item.metrics).focus * 100),
+          eyeStatus: item.error || eyeStatus === "no_face" ? undefined : eyeStatus,
+          cullingFlag: item.error
+            ? undefined
+            : classifyCullingFlag(item.metrics, analysisByPath.get(path)),
         };
       });
 
