@@ -5,9 +5,12 @@ const photoNotesController = require("../controllers/photoNotesController");
 const { requireAuth } = require("../middlewares/authMiddleware");
 
 const router = express.Router({ mergeParams: true });
+// Vùng cắt khuôn mặt tối đa mỗi ảnh (ảnh tập thể cả khối) — khớp MAX_FACE_CROPS ở FE
+// (src/lib/upload/uploadPrep.worker.ts).
+const MAX_FACE_CROPS = 150;
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024, files: MAX_FACE_CROPS + 1 },
   fileFilter: (req, file, callback) => {
     const extension = file.originalname.toLowerCase();
     if (file.mimetype !== "image/jpeg" || !(extension.endsWith(".jpg") || extension.endsWith(".jpeg"))) {
@@ -62,7 +65,14 @@ const upload = multer({
 router
   .route("/")
   .get(requireAuth, photoController.list)
-  .post(requireAuth, upload.single("file"), photoController.upload);
+  .post(
+    requireAuth,
+    upload.fields([
+      { name: "file", maxCount: 1 },
+      { name: "face_crops", maxCount: MAX_FACE_CROPS },
+    ]),
+    photoController.upload
+  );
 
 /**
  * @swagger

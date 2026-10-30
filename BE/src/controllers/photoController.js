@@ -1,12 +1,12 @@
 const path = require("node:path");
+const sharp = require("sharp");
 const albumModel = require("../models/albumModel");
 const photoModel = require("../models/photoModel");
 const sceneModel = require("../models/sceneModel");
 const burstClusterModel = require("../models/burstClusterModel");
-const photoFaceEmbeddingModel = require("../models/photoFaceEmbeddingModel");
 const redis = require("../config/redis");
 const { resolveSizePreset, resizeToLongEdge } = require("../services/thumbnailService");
-const { detectFaces } = require("../services/arcfaceService");
+const { saveCrops, enqueueFaceIndex } = require("../services/faceIndexQueue");
 const {
   uploadJpeg,
   deleteFile,
@@ -40,6 +40,41 @@ function parseCapturedAt(value) {
   return new Date(value).toISOString();
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseClientUploadId(value) {
+  if (value === undefined || value === "" || value === null) return null;
+  if (!UUID_PATTERN.test(value)) throw badRequest("client_upload_id không hợp lệ");
+  return value.toLowerCase();
+}
+
+// Vị trí vùng cắt khuôn mặt, chuẩn hoá theo kích thước ảnh. Vùng cắt quanh mặt sát mép ảnh
+// được phép tràn ra ngoài [0, 1] một chút.
+function parseFaceCropRegions(value, cropCount) {
+  let regions;
+  try {
+    regions = JSON.parse(value ?? "[]");
+  } catch {
+    throw badRequest("face_crop_regions không hợp lệ");
+  }
+  const inRange = (n, min, max) => typeof n === "number" && Number.isFinite(n) && n >= min && n <= max;
+  const valid = Array.isArray(regions)
+    && regions.length === cropCount
+    && regions.every((r) => r && inRange(r.x, -1, 2) && inRange(r.y, -1, 2) && inRange(r.w, 0.0001, 3) && inRange(r.h, 0.0001, 3));
+  if (!valid) throw badRequest("face_crop_regions không khớp với face_crops");
+  return regions.map(({ x, y, w, h }) => ({ x, y, w, h }));
+}
+
+// Kích thước hiển thị (đã xoay theo EXIF Orientation) — hệ toạ độ của bbox khuôn mặt.
+async function getDisplaySize(buffer) {
+  const metadata = await sharp(buffer).metadata();
+  const swapsAxes = metadata.orientation >= 5 && metadata.orientation <= 8;
+  return {
+    width: swapsAxes ? metadata.height : metadata.width,
+    height: swapsAxes ? metadata.width : metadata.height,
+  };
+}
+
 function getBaseFilename(file, requestedName) {
   const sourceName = requestedName || file.originalname;
   const baseName = path.basename(sourceName, path.extname(sourceName)).trim();
@@ -68,14 +103,15 @@ async function list(req, res, next) {
 async function upload(req, res, next) {
   let driveFile;
   try {
-    if (!req.file) throw badRequest("Cần gửi một file JPG trong field 'file'");
-    const extension = path.extname(req.file.originalname).toLowerCase();
+    const file = req.files?.file?.[0];
+    if (!file) throw badRequest("Cần gửi một file JPG trong field 'file'");
+    const extension = path.extname(file.originalname).toLowerCase();
     const isJpeg = extension === ".jpg" || extension === ".jpeg";
-    const hasJpegSignature = req.file.buffer.length >= 3
-      && req.file.buffer[0] === 0xff
-      && req.file.buffer[1] === 0xd8
-      && req.file.buffer[2] === 0xff;
-    if (!isJpeg || req.file.mimetype !== "image/jpeg" || !hasJpegSignature) {
+    const hasJpegSignature = file.buffer.length >= 3
+      && file.buffer[0] === 0xff
+      && file.buffer[1] === 0xd8
+      && file.buffer[2] === 0xff;
+    if (!isJpeg || file.mimetype !== "image/jpeg" || !hasJpegSignature) {
       throw badRequest("Chỉ chấp nhận file JPG/JPEG hợp lệ", "INVALID_JPEG_FILE");
     }
 
@@ -89,6 +125,21 @@ async function upload(req, res, next) {
     if (album.status !== "active" || album.is_locked) {
       throw badRequest("Album đã bị khóa hoặc lưu trữ", "ALBUM_NOT_ACTIVE");
     }
+
+    // Trình duyệt thử lại sau khi mất mạng lúc chờ phản hồi: ảnh lần trước có thể đã tạo xong
+    // — trả lại ảnh đó thay vì upload trùng.
+    const clientUploadId = parseClientUploadId(req.body.client_upload_id);
+    if (clientUploadId) {
+      const existing = await photoModel.findByClientUploadId(album.id, clientUploadId);
+      if (existing) return res.status(200).json({ photo: existing });
+    }
+
+    // Vùng cắt khuôn mặt lấy từ ảnh gốc (xem detectFacesInCrops). face_crops_provided=true
+    // với 0 vùng cắt = client đã dò, ảnh không có mặt người.
+    const cropFiles = req.files?.face_crops ?? [];
+    const faceCropRegions = req.body.face_crops_provided === "true"
+      ? parseFaceCropRegions(req.body.face_crop_regions, cropFiles.length)
+      : null;
 
     const sharpnessScore = parseOptionalInteger(req.body.sharpness_score, "sharpness_score", 0, 100);
     const width = parseOptionalInteger(req.body.width, "width", 1);
@@ -122,45 +173,63 @@ async function upload(req, res, next) {
       }
     }
 
-    driveFile = await uploadJpeg(
-      req.photographer.photographerId,
-      album.drive_folder_id,
-      req.file
-    );
-    const photo = await photoModel.createPhoto({
-      albumId: album.id,
-      driveFileId: driveFile.id,
-      originalBaseFilename: getBaseFilename(req.file, req.body.original_base_filename),
-      width,
-      height,
-      fileSizeBytes: req.file.size,
-      capturedAt,
-      sharpnessScore,
-      eyeStatus,
-      cullingFlag,
-      sceneId,
-      burstClusterId,
-      isBestInCluster,
-    });
+    const displaySize = await getDisplaySize(file.buffer);
+    const photographerId = req.photographer.photographerId;
+
+    driveFile = await uploadJpeg(photographerId, album.drive_folder_id, file);
+    let photo;
+    try {
+      photo = await photoModel.createPhoto({
+        albumId: album.id,
+        driveFileId: driveFile.id,
+        originalBaseFilename: getBaseFilename(file, req.body.original_base_filename),
+        width: width ?? displaySize.width,
+        height: height ?? displaySize.height,
+        fileSizeBytes: file.size,
+        capturedAt,
+        sharpnessScore,
+        eyeStatus,
+        cullingFlag,
+        sceneId,
+        burstClusterId,
+        isBestInCluster,
+        clientUploadId,
+      });
+    } catch (insertError) {
+      // 2 request cùng client_upload_id chạy chồng nhau: request kia đã tạo ảnh trước — xoá
+      // file vừa upload thừa (khối catch ngoài), trả về ảnh đã có.
+      const existing = insertError.code === "23505" && clientUploadId
+        ? await photoModel.findByClientUploadId(album.id, clientUploadId)
+        : null;
+      if (!existing) throw insertError;
+      await deleteFile(photographerId, driveFile.id).catch((cleanupError) =>
+        console.error("Không thể xoá file ảnh upload trùng trên Drive:", cleanupError.message)
+      );
+      return res.status(200).json({ photo: existing });
+    }
+    // Từ đây file Drive đã thuộc về 1 dòng photos — lỗi phía sau không được xoá nó.
+    driveFile = null;
 
     if (burstClusterId && isBestInCluster) {
       await burstClusterModel.setBestPhoto(burstClusterId, photo.id);
     }
 
-    // Bước 3.2 — trích embedding khuôn mặt ngay lúc PTG upload, dùng cho AI Face Search
-    // (Bước 3.3). Best-effort: ảnh không có mặt người, hoặc lỗi model, không được làm hỏng
-    // luồng upload chính (ảnh vẫn đã lưu thành công lên Drive + DB) — chỉ log lỗi lại.
-    try {
-      const faces = await detectFaces(req.file.buffer);
-      if (faces.length > 0) {
-        await photoFaceEmbeddingModel.createEmbeddingsForPhoto(photo.id, faces);
-      }
-    } catch (faceError) {
-      console.error(
-        `Trích embedding khuôn mặt thất bại cho photo ${photo.id}:`,
-        faceError.message
-      );
+    // Bước 3.2 — embedding khuôn mặt cho AI Face Search (Bước 3.3) trích NỀN sau khi trả lời
+    // (faceIndexQueue.js), không bắt trình duyệt chờ. Vùng cắt ghi ra đĩa trước khi trả lời để
+    // không mất nếu server tắt ngang; ghi lỗi thì hàng đợi dò mặt trên ảnh đã upload.
+    if (faceCropRegions) {
+      await saveCrops(
+        photo.id,
+        cropFiles.map((crop, index) => ({ buffer: crop.buffer, region: faceCropRegions[index] })),
+        displaySize
+      ).catch((cropError) => console.error(`Không lưu được vùng cắt khuôn mặt cho photo ${photo.id}:`, cropError.message));
     }
+    enqueueFaceIndex({
+      photoId: photo.id,
+      photographerId,
+      driveFileId: photo.drive_file_id,
+      imageBuffer: faceCropRegions ? null : file.buffer,
+    });
 
     res.status(201).json({ photo });
   } catch (error) {

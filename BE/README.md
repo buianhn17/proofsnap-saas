@@ -150,6 +150,14 @@ khuôn mặt (nếu có) và lưu vào `photo_face_embeddings` — chạy model 
 `onnxruntime-node`, xem bước "Tải trọng số model" ở trên. Ngưỡng so khớp (cosine
 distance, mặc định `0.42`) chỉnh được qua biến môi trường `FACE_MATCH_MAX_DISTANCE`.
 
+Từ migration `008_upload_face_index_queue.sql` (bắt buộc áp dụng trước khi chạy
+code mới), việc trích embedding chạy **nền** sau khi upload trả lời
+(`src/services/faceIndexQueue.js`, trạng thái ở cột `photos.face_index_status`;
+server khởi động lại sẽ chạy tiếp các ảnh còn `pending`). FE gửi kèm vùng cắt
+quanh từng khuôn mặt lấy từ **ảnh gốc** (ảnh trên Drive đã bị nén, mặt nhỏ trong
+ảnh tập thể không còn đủ chi tiết), vùng cắt lưu tạm ở thư mục
+`<tmp>/lensproof-face-crops` cho tới khi xử lý xong.
+
 Sau khi áp dụng migration `007_upgrade_to_arcface_512.sql` (xóa embedding 128
 chiều cũ), chạy `npm run reindex:faces` để trích lại embedding cho ảnh đã upload
 (thêm `-- <albumId>` để chỉ chạy 1 album).

@@ -117,12 +117,22 @@ CREATE TABLE photos (
     eye_status             TEXT CHECK (eye_status IN ('open','squint','closed')),
     culling_flag           TEXT CHECK (culling_flag IN ('green','yellow','red')),
     is_best_in_cluster     BOOLEAN NOT NULL DEFAULT false,
+    -- trích embedding khuôn mặt chạy nền sau upload (migration 008)
+    face_index_status      TEXT NOT NULL DEFAULT 'done'
+                           CHECK (face_index_status IN ('pending','done','failed')),
+    face_index_attempts    SMALLINT NOT NULL DEFAULT 0,
+    client_upload_id       UUID,                        -- chống upload trùng khi trình duyệt thử lại
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (album_id, drive_file_id)
 );
 CREATE INDEX idx_photos_album ON photos(album_id);
 CREATE INDEX idx_photos_scene ON photos(scene_id);
 CREATE INDEX idx_photos_cluster ON photos(burst_cluster_id);
+CREATE UNIQUE INDEX idx_photos_client_upload ON photos(album_id, client_upload_id)
+    WHERE client_upload_id IS NOT NULL;
+CREATE INDEX idx_photos_face_index_pending ON photos(face_index_status)
+    WHERE face_index_status = 'pending';
+CREATE INDEX idx_photos_album_order ON photos(album_id, captured_at, original_base_filename);
 
 ALTER TABLE burst_clusters
     ADD CONSTRAINT fk_burst_best_photo

@@ -143,7 +143,9 @@ function nonMaxSuppression(candidates) {
 
 // Giải mã output SCRFD: mỗi anchor có điểm tin cậy, khoảng cách từ tâm anchor tới 4 cạnh
 // bbox và độ lệch của 5 điểm mốc (đơn vị = stride). Quy đổi ngược về tọa độ ảnh gốc.
-async function detectFaceCandidates(detector, image) {
+// minFaceSizePx: vùng cắt khuôn mặt (detectFacesInCrops) đã được trình duyệt lọc kích thước
+// theo pixel ẢNH GỐC, còn ở đây vùng cắt có thể đã được phóng to — không lọc lại.
+async function detectFaceCandidates(detector, image, minFaceSizePx = MIN_FACE_SIZE_PX) {
   const { tensor, scale } = await buildDetectorInput(image);
   const outputs = await detector.run({ [detector.inputNames[0]]: tensor });
   const names = detector.outputNames;
@@ -182,7 +184,7 @@ async function detectFaceCandidates(detector, image) {
   });
 
   return nonMaxSuppression(candidates).filter(
-    (face) => Math.min(face.x2 - face.x1, face.y2 - face.y1) >= MIN_FACE_SIZE_PX
+    (face) => Math.min(face.x2 - face.x1, face.y2 - face.y1) >= minFaceSizePx
   );
 }
 
@@ -266,14 +268,16 @@ function l2Normalize(vector) {
   return Array.from(vector, (value) => value / norm);
 }
 
-async function extractEmbeddings(recognizer, image, faces) {
+/** items: [{ image, landmarks }] — mỗi mặt căn chỉnh trên ảnh chứa nó (ảnh đầy đủ, hoặc vùng
+ * cắt riêng của từng mặt ở detectFacesInCrops). */
+async function extractEmbeddings(recognizer, items) {
   const embeddings = [];
   const plane = 3 * ARCFACE_INPUT_SIZE * ARCFACE_INPUT_SIZE;
 
-  for (let start = 0; start < faces.length; start += RECOGNIZER_BATCH_SIZE) {
-    const batch = faces.slice(start, start + RECOGNIZER_BATCH_SIZE);
+  for (let start = 0; start < items.length; start += RECOGNIZER_BATCH_SIZE) {
+    const batch = items.slice(start, start + RECOGNIZER_BATCH_SIZE);
     const input = new Float32Array(batch.length * plane);
-    batch.forEach((face, index) => writeAlignedFace(image, face.landmarks, input, index));
+    batch.forEach((item, index) => writeAlignedFace(item.image, item.landmarks, input, index));
 
     const tensor = new ort.Tensor("float32", input, [
       batch.length,
@@ -303,7 +307,10 @@ async function detectFaces(imageBuffer) {
   const faces = await detectFaceCandidates(detector, image);
   if (faces.length === 0) return [];
 
-  const embeddings = await extractEmbeddings(recognizer, image, faces);
+  const embeddings = await extractEmbeddings(
+    recognizer,
+    faces.map((face) => ({ image, landmarks: face.landmarks }))
+  );
   return faces.map((face, index) => ({
     bbox: {
       x: Math.round(face.x1),
@@ -316,6 +323,68 @@ async function detectFaces(imageBuffer) {
   }));
 }
 
+// Vùng cắt do trình duyệt tạo quanh 1 khuôn mặt (mặt nằm giữa, chiếm ~1/2 cạnh). Chỉ lấy
+// detection có tâm trong vùng giữa này — ảnh tập thể đứng sát nhau nên mép vùng cắt thường
+// dính 1 phần mặt người bên cạnh.
+const CROP_CENTER_TOLERANCE = 0.25;
+
+/**
+ * Embedding khuôn mặt từ các vùng cắt trình duyệt lấy sẵn ở ẢNH GỐC full-res, mỗi vùng 1 mặt.
+ * Dùng thay detectFaces() cho ảnh vừa upload: ảnh lưu trên Drive đã bị nén nhỏ (preset 2560px
+ * thì mặt trong ảnh tập thể cả lớp chỉ còn ~23px — quá nhỏ để trích embedding tin cậy), còn ở
+ * ảnh gốc mặt đó ~55px. Căn chỉnh + ArcFace giữ y hệt detectFaces() để embedding so được với
+ * embedding ảnh selfie khi tìm kiếm.
+ * @param {Array<{ buffer: Buffer, region: {x:number,y:number,w:number,h:number} }>} crops
+ *   region: vị trí vùng cắt, chuẩn hoá 0-1 theo kích thước ảnh (có thể tràn ra ngoài mép ảnh).
+ * @param {{ width: number, height: number }} imageSize kích thước ảnh đã upload — quy bbox ra
+ *   pixel của ảnh đó, cùng hệ toạ độ với bbox của detectFaces().
+ */
+async function detectFacesInCrops(crops, imageSize) {
+  const { detector, recognizer } = await loadSessions();
+  const found = [];
+  for (const crop of crops) {
+    const image = await decodeImage(crop.buffer);
+    const candidates = await detectFaceCandidates(detector, image, 0);
+    let best = null;
+    let bestDistance = Infinity;
+    for (const face of candidates) {
+      const dx = ((face.x1 + face.x2) / 2) / image.width - 0.5;
+      const dy = ((face.y1 + face.y2) / 2) / image.height - 0.5;
+      const distance = Math.hypot(dx, dy);
+      if (Math.abs(dx) < CROP_CENTER_TOLERANCE && Math.abs(dy) < CROP_CENTER_TOLERANCE && distance < bestDistance) {
+        best = face;
+        bestDistance = distance;
+      }
+    }
+    if (best) found.push({ image, face: best, region: crop.region });
+  }
+  if (found.length === 0) return [];
+
+  const embeddings = await extractEmbeddings(
+    recognizer,
+    found.map(({ image, face }) => ({ image, landmarks: face.landmarks }))
+  );
+  return found.map(({ image, face, region }, index) => {
+    // px vùng cắt -> toạ độ chuẩn hoá trong ảnh -> px ảnh đã upload.
+    const toX = (x) => (region.x + (x / image.width) * region.w) * imageSize.width;
+    const toY = (y) => (region.y + (y / image.height) * region.h) * imageSize.height;
+    const x1 = Math.max(0, toX(face.x1));
+    const y1 = Math.max(0, toY(face.y1));
+    const x2 = Math.min(imageSize.width, toX(face.x2));
+    const y2 = Math.min(imageSize.height, toY(face.y2));
+    return {
+      bbox: {
+        x: Math.round(x1),
+        y: Math.round(y1),
+        w: Math.round(x2 - x1),
+        h: Math.round(y2 - y1),
+      },
+      score: face.score,
+      embedding: embeddings[index],
+    };
+  });
+}
+
 /** Khuôn mặt có bounding-box lớn nhất — dùng cho ảnh selfie (giả định chủ thể chính chiếm
  * phần lớn khung hình, bỏ qua người lạ/ảnh nền phía sau nếu selfie chụp có người khác). */
 function largestFace(faces) {
@@ -325,4 +394,4 @@ function largestFace(faces) {
   );
 }
 
-module.exports = { detectFaces, largestFace, EMBEDDING_DIM };
+module.exports = { detectFaces, detectFacesInCrops, largestFace, EMBEDDING_DIM };

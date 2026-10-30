@@ -3,11 +3,16 @@
 // cũ của face-api.js). Tải lại ảnh từ Drive của từng photographer, chạy arcfaceService rồi
 // ghi đè embedding của ảnh đó. Chạy lại an toàn (idempotent) nếu bị ngắt giữa chừng.
 //
+// LƯU Ý: ảnh upload từ bản có vùng cắt khuôn mặt (faceIndexQueue.js) được trích embedding từ
+// ẢNH GỐC full-res; script này chỉ có ảnh đã nén trên Drive nên mặt nhỏ trong ảnh tập thể sẽ
+// bị mất khỏi Face Search sau khi chạy lại. Chỉ chạy khi thật sự cần (đổi model nhận diện).
+//
 //   npm run reindex:faces                 # mọi ảnh của mọi album
 //   npm run reindex:faces -- <albumId>    # chỉ 1 album
 require("dotenv").config();
 
 const pool = require("../src/config/db");
+const photoModel = require("../src/models/photoModel");
 const photoFaceEmbeddingModel = require("../src/models/photoFaceEmbeddingModel");
 const { detectFaces } = require("../src/services/arcfaceService");
 const { downloadFileBuffer } = require("../src/services/googleDriveService");
@@ -38,6 +43,7 @@ async function main() {
       await photoFaceEmbeddingModel.createEmbeddingsForPhoto(photo.id, faces, {
         replaceExisting: true,
       });
+      await photoModel.setFaceIndexStatus(photo.id, "done");
       faceCount += faces.length;
     } catch (err) {
       // 1 ảnh lỗi (file Drive bị xóa, token hết hạn...) không được dừng cả lượt chạy.

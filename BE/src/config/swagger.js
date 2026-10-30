@@ -64,6 +64,27 @@ const options = {
 						sharpness_score: { type: "integer", minimum: 0, maximum: 100 },
 						eye_status: { type: "string", enum: ["open", "squint", "closed"] },
 						culling_flag: { type: "string", enum: ["green", "yellow", "red"] },
+						scene_id: { type: "string", format: "uuid" },
+						burst_cluster_id: { type: "string", format: "uuid" },
+						is_best_in_cluster: { type: "boolean" },
+						client_upload_id: {
+							type: "string",
+							format: "uuid",
+							description: "Mã do client sinh, giữ nguyên khi thử lại — trùng mã thì trả về ảnh đã tạo (200) thay vì upload trùng",
+						},
+						face_crops_provided: {
+							type: "boolean",
+							description: "true: client đã dò khuôn mặt trên ảnh gốc và gửi kèm vùng cắt (có thể 0 vùng) — server không dò lại trên ảnh đã nén",
+						},
+						face_crops: {
+							type: "array",
+							items: { type: "string", format: "binary" },
+							description: "Vùng cắt JPEG quanh từng khuôn mặt, lấy từ ảnh gốc full-res (tối đa 150)",
+						},
+						face_crop_regions: {
+							type: "string",
+							description: "JSON [{x,y,w,h}] vị trí từng vùng cắt, chuẩn hoá 0-1 theo kích thước ảnh, cùng thứ tự face_crops",
+						},
 					},
 				},
 				ClientAccessRequest: {
