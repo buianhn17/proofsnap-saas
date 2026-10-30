@@ -41,4 +41,11 @@ function crossOriginIsolationForCullingTest(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss(), crossOriginIsolationForCullingTest()],
+  optimizeDeps: {
+    // Chỉ culling.worker.ts import onnxruntime-web — bộ quét dep của Vite không đi vào
+    // worker nên lần đầu phân tích Vite mới phát hiện dep mới, tối ưu lại rồi reload: các
+    // worker đang khởi tạo chết giữa chừng và lượt phân tích treo. Khai báo trước để dep
+    // được pre-bundle ngay lúc khởi động dev server.
+    include: ['onnxruntime-web/webgpu'],
+  },
 })

@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Model ONNX tải bằng `npm run setup:culling-models`
+public/models/
+
 # Env
 .env
 

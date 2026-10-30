@@ -1,14 +1,22 @@
 // Chấm điểm chất lượng từng ảnh, đề xuất loại (kèm lý do) và chọn ảnh đẹp nhất (best pick)
 // trong mỗi chùm burst. Thuần dữ liệu — không DOM, không phụ thuộc thứ tự xử lý ảnh.
 //
-// Điểm 1 ảnh: 0.5 × Focus + 0.4 × MinEyeOpen + 0.1 × Exposure
+// Điểm 1 ảnh: (0.5 × Focus + 0.4 × Eye) / 0.9
 //   - Focus: trung bình focusScore của các người chính (ảnh không có mặt: độ nét toàn ảnh).
-//   - MinEyeOpen: eyeOpenScore THẤP NHẤT trong số người chính — 1 người nhắm mắt là đủ hỏng.
-//   - Exposure: điểm phơi sáng tổng thể (exposure.ts).
+//   - Eye, ảnh ít người: eyeOpenScore THẤP NHẤT trong số người chính — 1 người nhắm mắt là
+//     đủ hỏng. Trong chùm burst, độ mở mắt còn được so TƯƠNG ĐỐI với chính người đó ở các
+//     khung khác (xem withBurstRelativeEyes).
+//   - Eye, ảnh tập thể (>= GROUP_MIN_FACES người chính): tỉ lệ người MỞ mắt — với vài chục
+//     người gần như luôn có ai đó chớp mắt, nên xét theo tỉ lệ: > 50% nhắm -> loại, 20-50%
+//     -> xem lại, <= 20% -> chấp nhận được.
+// Phơi sáng KHÔNG còn tham gia chấm điểm/đề xuất loại: histogram toàn ảnh không phân biệt
+// được ảnh hỏng sáng với ảnh low-key/high-key có chủ đích (backstage tối, chủ thể được rọi
+// đèn — nền đen chiếm phần lớn khung là bị gắn "thiếu sáng" oan). exposure.ts vẫn được tính
+// để hiển thị tham khảo.
 
 import type { CullingMetrics, DetectedFace } from "./types";
 
-export type RejectReason = "blink" | "out_of_focus" | "underexposed" | "overexposed";
+export type RejectReason = "blink" | "out_of_focus";
 export type BurstRole = "best" | "alternative" | "reject";
 
 export interface PhotoAnalysisResult {
@@ -20,6 +28,10 @@ export interface PhotoAnalysisResult {
   burst_role: BurstRole;
   suggest_reject: boolean;
   reject_reasons: RejectReason[];
+  /** Không đến mức loại nhưng nên xem lại (nheo mắt; ảnh tập thể 20-50% người nhắm mắt). */
+  needs_review: boolean;
+  /** Ảnh tập thể: số người chính nhắm mắt / tổng số người chính. null nếu không phải ảnh tập thể. */
+  group_eyes: { closed: number; total: number } | null;
   overall_score: number;
   faces: {
     /** [x, y, width, height] chuẩn hoá 0-1 theo kích thước ảnh. */
@@ -39,10 +51,21 @@ export interface ScoringInput {
 
 const FOCUS_WEIGHT = 0.5;
 const EYE_WEIGHT = 0.4;
-const EXPOSURE_WEIGHT = 0.1;
 
 /** eyeOpenScore dưới ngưỡng -> coi là nhắm mắt. */
 export const BLINK_BELOW = 0.25;
+/** Ảnh ít người: có người chính mở mắt dưới mức này (nheo mắt, hoặc mặt nhỏ chưa chắc nhắm)
+ * -> xem lại. */
+const SQUINT_EYE_OPEN_BELOW = 0.5;
+
+/** Từ số người chính này trở lên coi là ảnh tập thể — nhắm mắt xét theo TỈ LỆ người thay vì
+ * "1 người nhắm là hỏng". 6: ảnh gia đình/nhóm nhỏ (<= 5 người) vẫn giữ luật chặt. */
+export const GROUP_MIN_FACES = 6;
+/** Ảnh tập thể: tỉ lệ người nhắm mắt VƯỢT mức này -> đề xuất loại. */
+const GROUP_REJECT_CLOSED_RATIO = 0.5;
+/** Ảnh tập thể: tỉ lệ người nhắm mắt vượt mức này (tới GROUP_REJECT_CLOSED_RATIO) -> xem lại;
+ * bằng hoặc dưới -> chấp nhận được. */
+const GROUP_REVIEW_CLOSED_RATIO = 0.2;
 /** focusScore dưới ngưỡng -> out nét. Hiệu chỉnh ở faceQuality.ts: ảnh nét gốc p10 ~0.65,
  * mờ Gaussian σ1px (ảnh 2000px) trung vị ~0.29, σ1.5px p90 ~0.18. */
 export const OUT_OF_FOCUS_BELOW = 0.25;
@@ -66,11 +89,17 @@ function mainSubjects(faces: DetectedFace[]): DetectedFace[] {
   return faces.filter((f) => f.isMainSubject);
 }
 
+function isGroupPhoto(metrics: CullingMetrics): boolean {
+  return mainSubjects(metrics.faces).length >= GROUP_MIN_FACES;
+}
+
 interface PhotoScore {
   overall: number;
   focus: number;
   suggestReject: boolean;
   reasons: RejectReason[];
+  needsReview: boolean;
+  groupEyes: { closed: number; total: number } | null;
 }
 
 /**
@@ -80,35 +109,135 @@ interface PhotoScore {
 export function scorePhoto(metrics: CullingMetrics, burstHasFaces = false): PhotoScore {
   const subjects = mainSubjects(metrics.faces);
   const reasons: RejectReason[] = [];
+  let needsReview = false;
+  let groupEyes: PhotoScore["groupEyes"] = null;
 
   let focus: number;
   let eye: number | null;
   if (subjects.length > 0) {
     focus = subjects.reduce((sum, f) => sum + f.focusScore, 0) / subjects.length;
-    eye = Math.min(...subjects.map((f) => f.eyeOpenScore));
-    if (subjects.some((f) => f.eyeOpenScore < BLINK_BELOW)) reasons.push("blink");
+    // Mặt lowDetail (người đứng xa) không đủ pixel để 1 mình nó quyết định loại ảnh.
+    const reliable = subjects.filter((f) => !f.lowDetail);
+    if (subjects.length >= GROUP_MIN_FACES) {
+      // Ảnh tập thể: đếm cả mặt lowDetail (ảnh cả lớp thì gần như mọi mặt đều lowDetail) —
+      // sai số từng mặt được trung bình bớt khi xét tỉ lệ trên vài chục người.
+      const closed = subjects.filter((f) => f.eyeOpenScore < BLINK_BELOW).length;
+      const closedRatio = closed / subjects.length;
+      groupEyes = { closed, total: subjects.length };
+      eye = 1 - closedRatio;
+      if (closedRatio > GROUP_REJECT_CLOSED_RATIO) reasons.push("blink");
+      else if (closedRatio > GROUP_REVIEW_CLOSED_RATIO) needsReview = true;
+    } else {
+      eye = Math.min(...subjects.map((f) => f.eyeOpenScore));
+      if (reliable.some((f) => f.eyeOpenScore < BLINK_BELOW)) reasons.push("blink");
+      if (subjects.some((f) => f.eyeOpenScore < SQUINT_EYE_OPEN_BELOW)) needsReview = true;
+    }
     // Loại khi BẤT KỲ người chính nào out nét — trung bình cao không cứu được 1 gương mặt
     // chính bị nhoè.
-    if (subjects.some((f) => f.focusScore < OUT_OF_FOCUS_BELOW)) reasons.push("out_of_focus");
+    if (reliable.some((f) => f.focusScore < OUT_OF_FOCUS_BELOW)) reasons.push("out_of_focus");
   } else {
     focus = globalFocusScore(metrics.sharpnessScore);
     eye = burstHasFaces ? MISSING_FACE_IN_FACE_BURST_EYE_SCORE : null;
     if (focus < OUT_OF_FOCUS_BELOW) reasons.push("out_of_focus");
   }
 
-  const exposure = metrics.exposure;
-  if (exposure.underexposed) reasons.push("underexposed");
-  if (exposure.overexposed) reasons.push("overexposed");
-
-  // Ảnh không người (phong cảnh, chi tiết, đồ vật): không có thành phần mắt -> chia lại
-  // trọng số giữa độ nét và phơi sáng theo đúng tỉ lệ 0.5 : 0.1.
+  // Ảnh không người (phong cảnh, chi tiết, đồ vật): không có thành phần mắt -> chỉ độ nét.
   const overall =
-    eye === null
-      ? (FOCUS_WEIGHT * focus + EXPOSURE_WEIGHT * exposure.score) /
-        (FOCUS_WEIGHT + EXPOSURE_WEIGHT)
-      : FOCUS_WEIGHT * focus + EYE_WEIGHT * eye + EXPOSURE_WEIGHT * exposure.score;
+    eye === null ? focus : (FOCUS_WEIGHT * focus + EYE_WEIGHT * eye) / (FOCUS_WEIGHT + EYE_WEIGHT);
 
-  return { overall, focus, suggestReject: reasons.length > 0, reasons };
+  return { overall, focus, suggestReject: reasons.length > 0, reasons, needsReview, groupEyes };
+}
+
+// --- So độ mở mắt tương đối trong chùm burst ---
+// EAR tuyệt đối dao động mạnh theo dáng mắt từng người (mắt hẹp/một mí có EAR "mở" chỉ
+// ~0.2) và góc mặt, nên 1 ngưỡng cứng vừa bỏ sót người mắt to nhắm hờ, vừa bắt oan người mắt
+// hẹp. Trong 1 chùm burst cùng người xuất hiện ở nhiều khung: lấy khung mở mắt to nhất của
+// chính người đó làm chuẩn, khung nào EAR tụt mạnh so với chuẩn là đang chớp mắt.
+
+// 2 mặt ở 2 khung là cùng người nếu tâm lệch nhau < tỉ lệ này × bề rộng hộp mặt.
+const SAME_PERSON_MAX_CENTER_SHIFT = 0.5;
+// Chuẩn phải là mắt mở rõ — dưới mức này (cả chùm đều nheo/nhắm) thì không so tương đối.
+const RELATIVE_MIN_REFERENCE_EAR = 0.2;
+// EAR / EAR chuẩn: <= 0.55 -> 0 điểm (nhắm), >= 0.85 -> 1 điểm (mở như khung đẹp nhất).
+const RELATIVE_CLOSED_RATIO = 0.55;
+const RELATIVE_OPEN_RATIO = 0.85;
+
+interface FaceTrack {
+  cx: number;
+  cy: number;
+  width: number;
+  maxEar: number;
+  count: number;
+}
+
+function faceCenter(face: DetectedFace) {
+  return { cx: face.box.x + face.box.width / 2, cy: face.box.y + face.box.height / 2 };
+}
+
+/** Gán mỗi người chính ở mỗi khung vào 1 "track" (cùng 1 người qua các khung) theo vị trí
+ * hộp mặt. Trả về track index song song với metrics.faces (-1 nếu không phải người chính). */
+function assignFaceTracks(members: ScoringInput[]): { tracks: FaceTrack[]; trackOf: number[][] } {
+  const tracks: FaceTrack[] = [];
+  const trackOf = members.map((member) => {
+    const usedInFrame = new Set<number>();
+    return member.metrics.faces.map((face) => {
+      if (!face.isMainSubject) return -1;
+      const { cx, cy } = faceCenter(face);
+      let bestIndex = -1;
+      let bestDist = Infinity;
+      tracks.forEach((track, index) => {
+        if (usedInFrame.has(index)) return;
+        const d = Math.hypot(cx - track.cx, cy - track.cy);
+        const limit = SAME_PERSON_MAX_CENTER_SHIFT * Math.max(track.width, face.box.width);
+        if (d < limit && d < bestDist) {
+          bestDist = d;
+          bestIndex = index;
+        }
+      });
+      if (bestIndex === -1) {
+        tracks.push({ cx, cy, width: face.box.width, maxEar: face.earValue, count: 1 });
+        bestIndex = tracks.length - 1;
+      } else {
+        const track = tracks[bestIndex];
+        // Bám theo vị trí mới nhất — người dịch dần qua các khung vẫn khớp được.
+        track.cx = cx;
+        track.cy = cy;
+        track.width = face.box.width;
+        track.maxEar = Math.max(track.maxEar, face.earValue);
+        track.count += 1;
+      }
+      usedInFrame.add(bestIndex);
+      return bestIndex;
+    });
+  });
+  return { tracks, trackOf };
+}
+
+/** Trả về metrics của từng ảnh với eyeOpenScore của người chính đã hạ xuống nếu mắt khép
+ * lại rõ rệt so với chính người đó ở khung mở mắt to nhất trong chùm. Ảnh tập thể giữ
+ * nguyên: mặt đứng sát nhau (cách ~1 bề rộng mặt), máy lệch nhẹ giữa 2 khung là ghép nhầm
+ * người bên cạnh; EAR của mặt nhỏ lại nhiễu — so tương đối chỉ khuếch đại nhiễu. */
+function withBurstRelativeEyes(members: ScoringInput[]): CullingMetrics[] {
+  const comparable = members.filter((m) => !isGroupPhoto(m.metrics));
+  if (comparable.length < 2) return members.map((m) => m.metrics);
+  const { tracks, trackOf } = assignFaceTracks(comparable);
+  const adjusted = new Map<ScoringInput, CullingMetrics>();
+  comparable.forEach((member, memberIndex) => {
+    adjusted.set(member, {
+      ...member.metrics,
+      faces: member.metrics.faces.map((face, faceIndex) => {
+        const track = tracks[trackOf[memberIndex][faceIndex]];
+        if (!track || track.count < 2 || track.maxEar < RELATIVE_MIN_REFERENCE_EAR) return face;
+        const ratio = face.earValue / track.maxEar;
+        const relativeScore = Math.max(
+          0,
+          Math.min(1, (ratio - RELATIVE_CLOSED_RATIO) / (RELATIVE_OPEN_RATIO - RELATIVE_CLOSED_RATIO))
+        );
+        return { ...face, eyeOpenScore: Math.min(face.eyeOpenScore, relativeScore) };
+      }),
+    });
+  });
+  return members.map((m) => adjusted.get(m) ?? m.metrics);
 }
 
 function round3(value: number): number {
@@ -131,9 +260,11 @@ export function scoreBursts(inputs: ScoringInput[]): Map<string, PhotoAnalysisRe
   const results = new Map<string, PhotoAnalysisResult>();
   for (const [burstGroupId, members] of byBurst) {
     const burstHasFaces = members.some((m) => mainSubjects(m.metrics.faces).length > 0);
-    const scored = members.map((member) => ({
+    const adjustedMetrics = withBurstRelativeEyes(members);
+    const scored = members.map((member, index) => ({
       member,
-      score: scorePhoto(member.metrics, burstHasFaces),
+      metrics: adjustedMetrics[index],
+      score: scorePhoto(adjustedMetrics[index], burstHasFaces),
     }));
     const best = scored.reduce((a, b) =>
       b.score.overall > a.score.overall ||
@@ -142,7 +273,7 @@ export function scoreBursts(inputs: ScoringInput[]): Map<string, PhotoAnalysisRe
         : a
     );
 
-    for (const { member, score } of scored) {
+    for (const { member, metrics, score } of scored) {
       const isBest = member === best.member;
       results.set(member.photoId, {
         photo_id: member.photoId,
@@ -151,8 +282,10 @@ export function scoreBursts(inputs: ScoringInput[]): Map<string, PhotoAnalysisRe
         burst_role: isBest ? "best" : score.suggestReject ? "reject" : "alternative",
         suggest_reject: score.suggestReject,
         reject_reasons: score.reasons,
+        needs_review: score.needsReview,
+        group_eyes: score.groupEyes,
         overall_score: round3(score.overall),
-        faces: member.metrics.faces.map((f) => ({
+        faces: metrics.faces.map((f) => ({
           bbox: [round3(f.box.x), round3(f.box.y), round3(f.box.width), round3(f.box.height)],
           is_blinking: f.eyeOpenScore < BLINK_BELOW,
           eye_open_score: round3(f.eyeOpenScore),

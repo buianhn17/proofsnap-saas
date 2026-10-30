@@ -64,8 +64,6 @@ type LocalActionState =
 const REJECT_REASON_LABEL: Record<RejectReason, string> = {
   blink: "Nhắm mắt",
   out_of_focus: "Out nét",
-  underexposed: "Thiếu sáng",
-  overexposed: "Cháy sáng",
 };
 
 const EYE_LABEL: Record<EyeStatus, string> = {
@@ -187,6 +185,9 @@ export default function AlbumCullPage() {
   // xong (không cố định), dùng map này để chèn ảnh vào `items` đúng thứ tự file gốc.
   const inputIndexRef = useRef(new Map<string, number>());
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
+  // Màu gợi ý AI đã gán cho từng ảnh — để biết ảnh nào PTG chưa tự đổi màu, khi chấm lại theo
+  // chùm burst (sau khi phân tích xong) thì chỉ cập nhật những ảnh đó.
+  const aiFlagRef = useRef(new Map<string, CullingFlag>());
   // Bước hiệu năng — 2 bản blob nhẹ hơn nhiều so với file gốc (thường 20-40MB): `thumbnails`
   // (~900px, cho ô lưới) và `previews` (~2000px, cho màn hình xem full-screen). File gốc chỉ
   // cần đụng tới khi thật sự upload (Bước 2.3).
@@ -198,6 +199,13 @@ export default function AlbumCullPage() {
   const [autoSkipFlagged, setAutoSkipFlagged] = useState(true);
 
   const [viewMode, setViewMode] = useState<ViewMode>("scenes");
+  // Lọc lưới/lượt duyệt theo quyết định Giữ/Xem lại/Loại. Thành viên của bộ lọc tính theo
+  // ẢNH CHỤP NHANH quyết định lúc chọn bộ lọc (filterSnapshot), không theo quyết định hiện
+  // tại: đổi màu 1 ảnh khi đang lọc không làm nó biến mất ngay khỏi lưới/lượt duyệt (index
+  // ảnh đang xem không bị xô lệch). Ảnh mới phân tích xong sau lúc chụp nhanh thì dùng quyết
+  // định hiện tại.
+  const [decisionFilter, setDecisionFilter] = useState<Decision | "all">("all");
+  const [filterSnapshot, setFilterSnapshot] = useState<Record<string, Decision>>({});
   const [expandedBursts, setExpandedBursts] = useState<Set<number>>(
     new Set()
   );
@@ -261,6 +269,7 @@ export default function AlbumCullPage() {
 
     // Khởi tạo màu rate = đúng gợi ý AI — PTG ghi đè sau bằng phím tắt/nút bấm.
     const flag = classifyCullingFlag(item.metrics);
+    aiFlagRef.current.set(path, flag);
     setDecisions((prev) => ({ ...prev, [path]: flag }));
   }
 
@@ -277,6 +286,8 @@ export default function AlbumCullPage() {
     setProgress(null);
     setItems([]);
     setDecisions({});
+    setDecisionFilter("all");
+    aiFlagRef.current = new Map();
 
     inputIndexRef.current = new Map();
     const { promise, abort } = runCullingTestInWorker(jpgFiles, {
@@ -442,6 +453,7 @@ export default function AlbumCullPage() {
         timestampSource: item.sceneSignals.timestampSource,
         histogram: item.sceneSignals.histogram,
         hash: item.metrics.hash,
+        signature: item.sceneSignals.signature,
       }))
     );
     const byPath = new Map(items.map((item) => [item.file.relativePath, item]));
@@ -494,6 +506,31 @@ export default function AlbumCullPage() {
     return { scenes: sceneGroups, analysisByPath };
   }, [items]);
 
+  // Phân tích xong -> chấm lại màu gợi ý theo chùm burst (độ mở mắt so tương đối giữa các
+  // khung, burstScoring.ts). Trong lúc chạy chùm chưa đủ ảnh nên giữ màu chấm độc lập.
+  useEffect(() => {
+    if (isRunning || analysisByPath.size === 0) return;
+    const updates: { path: string; oldFlag: CullingFlag | undefined; flag: CullingFlag }[] = [];
+    for (const item of items) {
+      const path = item.file.relativePath;
+      const flag = classifyCullingFlag(item.metrics, analysisByPath.get(path));
+      const oldFlag = aiFlagRef.current.get(path);
+      if (oldFlag !== flag) {
+        updates.push({ path, oldFlag, flag });
+        aiFlagRef.current.set(path, flag);
+      }
+    }
+    if (updates.length === 0) return;
+    setDecisions((prev) => {
+      const next = { ...prev };
+      for (const { path, oldFlag, flag } of updates) {
+        // PTG đã tự đổi màu ảnh này -> giữ quyết định của PTG.
+        if (prev[path] === oldFlag) next[path] = flag;
+      }
+      return next;
+    });
+  }, [isRunning, analysisByPath, items]);
+
   // Bug fix — thứ tự ảnh khi duyệt (mở/Trước/Sau trong review) phải khớp với thứ tự ĐANG
   // HIỂN THỊ trên lưới, không phải thứ tự `items` gốc (thứ tự worker xử lý xong từng ảnh —
   // có thể khác thứ tự thời gian chụp). Ở chế độ "Theo buổi chụp", lưới hiển thị theo
@@ -501,16 +538,30 @@ export default function AlbumCullPage() {
   // giữ nguyên thứ tự `items`. Trước đây review dùng thẳng `items`/`pathToIndex` theo thứ tự
   // gốc nên bấm vào 1 ảnh trong lưới "Theo buổi chụp" rồi bấm Tiếp/Trước sẽ nhảy sang ảnh
   // không liền kề trên màn hình.
+  const matchesFilter = useCallback(
+    (item: CullingTestItem) => {
+      if (decisionFilter === "all") return true;
+      const path = item.file.relativePath;
+      return (filterSnapshot[path] ?? decisions[path] ?? "yellow") === decisionFilter;
+    },
+    [decisionFilter, filterSnapshot, decisions]
+  );
+
+  function selectDecisionFilter(filter: Decision | "all") {
+    setFilterSnapshot(decisions);
+    setDecisionFilter(filter);
+  }
+
   const displayOrderItems = useMemo<CullingTestItem[]>(() => {
-    if (viewMode === "flat") return items;
+    if (viewMode === "flat") return items.filter(matchesFilter);
     const result: CullingTestItem[] = [];
     for (const scene of scenes) {
       for (const burst of scene.bursts) {
-        result.push(...burst.items);
+        result.push(...burst.items.filter(matchesFilter));
       }
     }
     return result;
-  }, [viewMode, items, scenes]);
+  }, [viewMode, items, scenes, matchesFilter]);
 
   const pathToIndex = useMemo(() => {
     const map = new Map<string, number>();
@@ -545,7 +596,8 @@ export default function AlbumCullPage() {
       while (idx >= 0 && idx < displayOrderItems.length) {
         const path = displayOrderItems[idx].file.relativePath;
         const decision = decisions[path] ?? "yellow";
-        if (!autoSkipFlagged || decision !== "red") {
+        // Đang lọc riêng ảnh Loại thì không bỏ qua ảnh loại — nếu không sẽ không duyệt được.
+        if (!autoSkipFlagged || decisionFilter === "red" || decision !== "red") {
           setReviewIndex(idx);
           return;
         }
@@ -553,7 +605,7 @@ export default function AlbumCullPage() {
       }
       // Không còn ảnh hợp lệ theo hướng này (đã hết hoặc toàn bộ còn lại đều bị loại) — giữ nguyên vị trí.
     },
-    [displayOrderItems, decisions, autoSkipFlagged]
+    [displayOrderItems, decisions, autoSkipFlagged, decisionFilter]
   );
 
   function decideCurrent(decision: Decision) {
@@ -740,16 +792,29 @@ export default function AlbumCullPage() {
       return rows;
     }
 
+    const toItemCard = (item: CullingTestItem): GridCard => ({
+      kind: "item",
+      key: item.file.relativePath,
+      item,
+    });
+
     if (viewMode === "flat") {
-      const cards: GridCard[] = items.map((item) => ({
-        kind: "item",
-        key: item.file.relativePath,
-        item,
-      }));
-      return chunkCards(cards, "flat");
+      return chunkCards(items.filter(matchesFilter).map(toItemCard), "flat");
     }
 
     const rows: GridRow[] = [];
+    if (decisionFilter !== "all") {
+      // Đang lọc: trải phẳng ảnh khớp bộ lọc theo từng buổi chụp, không gộp chùm burst (ảnh
+      // đại diện của chùm có thể không khớp bộ lọc).
+      for (const scene of scenes) {
+        const matched = scene.bursts.flatMap((burst) => burst.items.filter(matchesFilter));
+        if (matched.length === 0) continue;
+        rows.push({ key: `scene-${scene.sceneId}`, kind: "sceneHeader", scene });
+        rows.push(...chunkCards(matched.map(toItemCard), `scene-${scene.sceneId}-filtered`));
+      }
+      return rows;
+    }
+
     for (const scene of scenes) {
       rows.push({ key: `scene-${scene.sceneId}`, kind: "sceneHeader", scene });
       let pending: GridCard[] = [];
@@ -789,7 +854,7 @@ export default function AlbumCullPage() {
       flushPending();
     }
     return rows;
-  }, [viewMode, items, scenes, expandedBursts, columns]);
+  }, [viewMode, items, scenes, expandedBursts, columns, decisionFilter, matchesFilter]);
 
   const rowVirtualizer = useWindowVirtualizer({
     count: gridRows.length,
@@ -813,7 +878,7 @@ export default function AlbumCullPage() {
   ) {
     const path = item.file.relativePath;
     const index = pathToIndex.get(path);
-    const flag = classifyCullingFlag(item.metrics);
+    const flag = classifyCullingFlag(item.metrics, analysisByPath.get(path));
     const decision = decisions[path] ?? "yellow";
     // Chỉ hiện chấm gợi ý AI (góc trái) khi PTG đã ghi đè khác với gợi ý ban đầu — tránh lặp
     // lại cùng 1 màu 2 lần ở đa số ảnh (đa số ảnh chưa đổi thì màu rate = đúng gợi ý AI rồi).
@@ -1310,11 +1375,38 @@ export default function AlbumCullPage() {
                 Theo buổi chụp ({scenes.length})
               </button>
             </div>
-            <span className="font-mono text-xs tracking-[0.6px] text-[#c1c6d4]">
-              {counts.total} ảnh · Giữ {counts.keep} · Xem lại {counts.review} ·
-              Loại {counts.reject}
-            </span>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {(
+                [
+                  { value: "all", label: "Tất cả", count: counts.total, dot: null },
+                  { value: "green", label: "Giữ", count: counts.keep, dot: "bg-emerald-400" },
+                  { value: "yellow", label: "Xem lại", count: counts.review, dot: "bg-amber-400" },
+                  { value: "red", label: "Loại", count: counts.reject, dot: "bg-red-500" },
+                ] as const
+              ).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => selectDecisionFilter(option.value)}
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono tracking-[0.6px] ${
+                    decisionFilter === option.value
+                      ? "border-white bg-white text-[#131313]"
+                      : "border-[#414752] text-[#c1c6d4] hover:bg-[#2a2a2a]"
+                  }`}
+                >
+                  {option.dot && <span className={`h-2 w-2 rounded-full ${option.dot}`} />}
+                  {option.label} {option.count}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {decisionFilter !== "all" && (
+            <p className="mt-2 font-mono text-[11px] tracking-[0.6px] text-[#8b919e]">
+              Đang hiện {displayOrderItems.length} ảnh. Ảnh đổi màu khi đang lọc vẫn hiện tới khi
+              chọn lại bộ lọc.
+            </p>
+          )}
 
           <div
             ref={setGridContainerNode}
@@ -1591,9 +1683,9 @@ export default function AlbumCullPage() {
 
                 {/* Top-Right AI Metric Badges */}
                 {!reviewZoom && (() => {
-                  const flag = classifyCullingFlag(currentItem.metrics);
-                  const overlay = FLAG_OVERLAY[flag];
                   const currentAnalysis = analysisByPath.get(currentItem.file.relativePath);
+                  const flag = classifyCullingFlag(currentItem.metrics, currentAnalysis);
+                  const overlay = FLAG_OVERLAY[flag];
                   return (
                     <div className="absolute right-4 top-4 flex flex-col items-end gap-2 pointer-events-none">
                       <div
@@ -1619,11 +1711,25 @@ export default function AlbumCullPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-950/80 px-3 py-1.5 backdrop-blur-md">
-                        <p className="text-xs text-zinc-300">
-                          Mắt: <span className="font-semibold text-white">{EYE_LABEL[currentItem.metrics.eyeStatus]}</span>
-                          {currentItem.metrics.earValue !== null &&
-                            ` (EAR ${currentItem.metrics.earValue.toFixed(2)})`}
-                        </p>
+                        {currentAnalysis?.group_eyes ? (
+                          <p className="text-xs text-zinc-300">
+                            Ảnh tập thể · Nhắm mắt:{" "}
+                            <span className="font-semibold text-white">
+                              {currentAnalysis.group_eyes.closed}/{currentAnalysis.group_eyes.total} người (
+                              {Math.round(
+                                (100 * currentAnalysis.group_eyes.closed) /
+                                  currentAnalysis.group_eyes.total
+                              )}
+                              %)
+                            </span>
+                          </p>
+                        ) : (
+                          <p className="text-xs text-zinc-300">
+                            Mắt: <span className="font-semibold text-white">{EYE_LABEL[currentItem.metrics.eyeStatus]}</span>
+                            {currentItem.metrics.earValue !== null &&
+                              ` (EAR ${currentItem.metrics.earValue.toFixed(2)})`}
+                          </p>
+                        )}
                       </div>
                     </div>
                   );
@@ -1675,6 +1781,10 @@ export default function AlbumCullPage() {
                         {!face.isMainSubject && (
                           <p className="mt-1 text-[11px] text-zinc-500">Người phụ — không tính khi chấm điểm</p>
                         )}
+                        {face.isMainSubject &&
+                          analysisByPath.get(currentItem.file.relativePath)?.faces[index]?.is_blinking && (
+                            <p className="mt-1 text-[11px] font-semibold text-red-400">Được tính là nhắm mắt</p>
+                          )}
                       </div>
                     ))}
                   </div>

@@ -1,12 +1,14 @@
 // Bước 1.7 — gom nhóm scene (buổi chụp) theo khoảng cách thời gian EXIF + thay đổi khung
-// hình lớn (color histogram), và gom cụm burst (loạt ảnh chụp liên tiếp giống nhau): 2 ảnh
-// liền kề cùng burst khi chụp cách nhau <= burstMaxGapMs (mặc định 1.2s, theo EXIF có phần
-// lẻ giây) VÀ bố cục tương đồng theo dHash đã có ở Bước 1.3 — chỉ giống bố cục mà cách nhau
-// vài phút (chụp lại cùng góc sau đó) là 2 khoảnh khắc khác nhau, không phải 1 loạt burst. Khác với groupByHashDistance ở perceptualHash.ts (so TOÀN CỤC,
-// dùng để bắt trùng lặp bất kỳ vị trí nào trong công cụ test) — ở đây CHỈ so 2 ảnh LIỀN KỀ
-// theo thứ tự thời gian, đúng bản chất của 1 loạt burst chụp liên tiếp.
+// hình lớn (color histogram), và gom cụm burst (các khung chụp liên tiếp CÙNG 1 khoảnh
+// khắc/tư thế, để chọn 1 ảnh đẹp nhất): 2 ảnh liền kề cùng burst khi bố cục tương đồng VÀ
+// chụp đủ gần nhau — giống càng nhiều thì cho phép cách nhau càng lâu (PTG sự kiện thường
+// bấm 3-5 khung cùng 1 tư thế trong vài giây, không phải chỉ chế độ chụp liên tục 1.2s).
+// Chỉ giống bố cục mà cách nhau vài phút (chụp lại cùng góc sau đó) là 2 khoảnh khắc khác
+// nhau. Khác với groupByHashDistance ở perceptualHash.ts (so TOÀN CỤC, dùng để bắt trùng
+// lặp bất kỳ vị trí nào trong công cụ test) — ở đây CHỈ so với các ảnh gần nhất theo thứ tự
+// thời gian, đúng bản chất của 1 loạt burst chụp liên tiếp.
 
-import { hammingDistance } from "./perceptualHash";
+import { hammingDistance, signatureSimilarity } from "./perceptualHash";
 import { histogramDistance } from "./colorHistogram";
 
 /** Độ tin cậy của timestampMs: EXIF có phần lẻ giây (chính xác tới ms), EXIF chỉ tới giây,
@@ -20,6 +22,8 @@ export interface SceneGroupingInput {
   timestampSource: TimestampSource;
   histogram: number[];
   hash: string;
+  /** Chữ ký tương đồng (computeSimilaritySignature) — rỗng thì chỉ so bằng dHash. */
+  signature: number[];
 }
 
 export interface SceneGroupingOptions {
@@ -29,15 +33,28 @@ export interface SceneGroupingOptions {
   sceneHistogramThreshold?: number;
   /** Khoảng cách Hamming tối đa giữa 2 ảnh LIÊN TIẾP để coi là cùng 1 loạt burst. */
   burstMaxHammingDistance?: number;
-  /** Khoảng cách thời gian tối đa (ms) giữa 2 ảnh liên tiếp trong cùng 1 burst. */
+  /** Khoảng cách thời gian tối đa (ms) giữa 2 ảnh liên tiếp trong cùng 1 burst, khi bố cục
+   * tương đồng ở mức burstSimilarity. */
   burstMaxGapMs?: number;
+  /** Tương quan chữ ký tối thiểu (0-1) để coi là cùng burst trong burstMaxGapMs. */
+  burstSimilarity?: number;
+  /** Tương quan chữ ký từ mức này trở lên (gần như giống hệt) được nới khoảng cách thời gian
+   * lên burstNearDuplicateGapMs — cùng tư thế, PTG bấm lại sau vài giây. */
+  burstNearDuplicateSimilarity?: number;
+  burstNearDuplicateGapMs?: number;
 }
 
+// Ngưỡng tương quan chọn theo đặc tính ảnh xám 16x16 đã chuẩn hoá: 2 khung cùng tư thế/góc
+// máy (người cử động nhẹ, nháy mắt, đổi biểu cảm) thường >= 0.9; đổi tư thế/zoom rõ rệt
+// nhưng cùng bối cảnh ~0.6-0.8; đổi góc máy hẳn < 0.5. Chỉnh qua options nếu cần.
 const DEFAULT_OPTIONS: Required<SceneGroupingOptions> = {
   sceneGapMinutes: 20,
   sceneHistogramThreshold: 0.35,
   burstMaxHammingDistance: 6,
-  burstMaxGapMs: 1200,
+  burstMaxGapMs: 3000,
+  burstSimilarity: 0.82,
+  burstNearDuplicateSimilarity: 0.92,
+  burstNearDuplicateGapMs: 10000,
 };
 
 // EXIF thiếu SubSecTimeOriginal chỉ chính xác tới giây: 2 khung cách nhau 0.3s vẫn có thể
@@ -84,8 +101,8 @@ export function groupScenesAndBursts(
 
   let currentScene = 0;
   let currentBurst = 0;
-  // Hash của các ảnh đã thuộc burst hiện tại, tối đa BURST_WINDOW_SIZE ảnh gần nhất.
-  let burstWindow: string[] = [];
+  // Các ảnh đã thuộc burst hiện tại, tối đa BURST_WINDOW_SIZE ảnh gần nhất.
+  let burstWindow: SceneGroupingInput[] = [];
 
   sorted.forEach((item, index) => {
     order.push(item.id);
@@ -102,18 +119,34 @@ export function groupScenesAndBursts(
         currentBurst += 1;
         burstWindow = [];
       } else {
-        const minDist = Math.min(
-          ...burstWindow.map((hash) => hammingDistance(item.hash, hash))
+        const withinGap = (baseGapMs: number) =>
+          timeDelta <= burstGapLimitMs(prev, item, baseGapMs);
+        const minHashDist = Math.min(
+          ...burstWindow.map((w) => hammingDistance(item.hash, w.hash))
         );
-        const tooFarApart = timeDelta > burstGapLimitMs(prev, item, opts.burstMaxGapMs);
-        if (tooFarApart || minDist > opts.burstMaxHammingDistance) {
+        const similarities = burstWindow
+          .map((w) => signatureSimilarity(item.signature, w.signature))
+          .filter((s): s is number => s !== null);
+        const maxSimilarity = similarities.length > 0 ? Math.max(...similarities) : null;
+
+        const sameBurst =
+          (maxSimilarity !== null &&
+            maxSimilarity >= opts.burstNearDuplicateSimilarity &&
+            withinGap(opts.burstNearDuplicateGapMs)) ||
+          (maxSimilarity !== null &&
+            maxSimilarity >= opts.burstSimilarity &&
+            withinGap(opts.burstMaxGapMs)) ||
+          // dHash vẫn giữ làm tín hiệu phụ (ảnh lỗi không có chữ ký, hoặc cặp ảnh dHash
+          // bắt được mà tương quan hụt ngưỡng chút ít).
+          (minHashDist <= opts.burstMaxHammingDistance && withinGap(opts.burstMaxGapMs));
+        if (!sameBurst) {
           currentBurst += 1;
           burstWindow = [];
         }
       }
     }
 
-    burstWindow.push(item.hash);
+    burstWindow.push(item);
     if (burstWindow.length > BURST_WINDOW_SIZE) burstWindow.shift();
 
     sceneId.set(item.id, currentScene);

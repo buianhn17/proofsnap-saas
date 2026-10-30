@@ -7,13 +7,15 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup:culling-models": "node scripts/downloadCullingModels.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
     "@tanstack/react-virtual": "^3.14.10",
     "axios": "^1.19.0",
     "browser-image-compression": "^2.0.2",
+    "onnxruntime-web": "1.30.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2"

@@ -26,6 +26,9 @@ export interface DetectedFace {
   /** Mặt đủ lớn so với mặt lớn nhất trong ảnh để coi là "người chính" — chỉ người chính
    * mới khiến ảnh bị đề xuất loại khi nhắm mắt/out nét (người qua đường phía sau thì không). */
   isMainSubject: boolean;
+  /** Mặt quá ít pixel (người đứng xa trong ảnh tập thể đông) — độ mở mắt/độ nét kém tin cậy,
+   * chỉ đủ để gợi ý "Xem lại", không tự động đề xuất loại. */
+  lowDetail: boolean;
 }
 
 export interface CullingMetrics {

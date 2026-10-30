@@ -12,7 +12,7 @@ export function computeDHash(
   sourceHeight: number
 ): string {
   const canvas = new OffscreenCanvas(HASH_WIDTH, HASH_HEIGHT);
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Không tạo được canvas context để tính dHash");
 
   ctx.imageSmoothingEnabled = true;
@@ -45,6 +45,82 @@ export function computeDHash(
   }
 
   return hash.toString(16).padStart(16, "0");
+}
+
+// Chữ ký tương đồng cho gom burst — bổ sung cho dHash. dHash 64 bit chỉ so dấu chênh sáng
+// giữa 2 ô liền kề trên lưới 9x8: ảnh tối/tương phản thấp (backstage, hội trường) có nhiều
+// cặp ô gần bằng nhau nên bit lật ngẫu nhiên giữa 2 khung gần như giống hệt, còn người mẫu
+// đổi tư thế nhẹ/máy lia vài % khung là Hamming đã vượt ngưỡng. Chữ ký này là ảnh xám
+// 16x16 chuẩn hoá (trừ trung bình, chia độ lệch chuẩn) — so bằng tương quan Pearson nên
+// miễn nhiễm với đổi sáng/độ tương phản giữa 2 khung, và cho phép lệch ±1 ô (~6% khung).
+const SIGNATURE_SIZE = 16;
+const SIGNATURE_MAX_SHIFT = 1;
+
+/** Ảnh xám 16x16 đã chuẩn hoá (mean 0, std 1), làm tròn 3 chữ số — rỗng nếu ảnh phẳng. */
+export function computeSimilaritySignature(
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number
+): number[] {
+  const canvas = new OffscreenCanvas(SIGNATURE_SIZE, SIGNATURE_SIZE);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) throw new Error("Không tạo được canvas context để tính chữ ký ảnh");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, 0, 0, sourceWidth, sourceHeight, 0, 0, SIGNATURE_SIZE, SIGNATURE_SIZE);
+  const { data } = ctx.getImageData(0, 0, SIGNATURE_SIZE, SIGNATURE_SIZE);
+
+  const gray: number[] = [];
+  let sum = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const value = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    gray.push(value);
+    sum += value;
+  }
+  const mean = sum / gray.length;
+  const variance = gray.reduce((acc, v) => acc + (v - mean) * (v - mean), 0) / gray.length;
+  // Ảnh gần như 1 màu (khung đen/che ống kính) — không có bố cục để so.
+  if (variance < 1) return [];
+  const std = Math.sqrt(variance);
+  return gray.map((v) => Math.round(((v - mean) / std) * 1000) / 1000);
+}
+
+/** Tương quan Pearson -1..1 giữa 2 chữ ký, lấy giá trị lớn nhất khi dịch 1 bên ±1 ô theo
+ * mỗi trục (bù máy lia/người dịch nhẹ giữa các khung). null nếu thiếu chữ ký. */
+export function signatureSimilarity(a: number[], b: number[]): number | null {
+  const cellCount = SIGNATURE_SIZE * SIGNATURE_SIZE;
+  if (a.length !== cellCount || b.length !== cellCount) return null;
+
+  let best = -1;
+  for (let dy = -SIGNATURE_MAX_SHIFT; dy <= SIGNATURE_MAX_SHIFT; dy += 1) {
+    for (let dx = -SIGNATURE_MAX_SHIFT; dx <= SIGNATURE_MAX_SHIFT; dx += 1) {
+      // Chỉ tính trên phần chồng lên nhau, chuẩn hoá lại trên chính phần đó.
+      let sumA = 0;
+      let sumB = 0;
+      let sumAA = 0;
+      let sumBB = 0;
+      let sumAB = 0;
+      let n = 0;
+      for (let y = Math.max(0, -dy); y < Math.min(SIGNATURE_SIZE, SIGNATURE_SIZE - dy); y += 1) {
+        for (let x = Math.max(0, -dx); x < Math.min(SIGNATURE_SIZE, SIGNATURE_SIZE - dx); x += 1) {
+          const va = a[y * SIGNATURE_SIZE + x];
+          const vb = b[(y + dy) * SIGNATURE_SIZE + x + dx];
+          sumA += va;
+          sumB += vb;
+          sumAA += va * va;
+          sumBB += vb * vb;
+          sumAB += va * vb;
+          n += 1;
+        }
+      }
+      const cov = sumAB / n - (sumA / n) * (sumB / n);
+      const varA = sumAA / n - (sumA / n) ** 2;
+      const varB = sumBB / n - (sumB / n) ** 2;
+      if (varA <= 0 || varB <= 0) continue;
+      best = Math.max(best, cov / Math.sqrt(varA * varB));
+    }
+  }
+  return best;
 }
 
 export function hammingDistance(hexA: string, hexB: string): number {

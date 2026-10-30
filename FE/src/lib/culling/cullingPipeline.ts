@@ -6,8 +6,9 @@
 import type { FaceLandmarker } from "@mediapipe/tasks-vision";
 import type { LocalPhotoFile } from "../localPhotoFile";
 import { computeSharpnessScore } from "./sharpness";
-import { computeDHash } from "./perceptualHash";
+import { computeDHash, computeSimilaritySignature } from "./perceptualHash";
 import { detectEyeStatus, classifyEyeStatus } from "./eyeStatus";
+import type { FaceDetector } from "./faceDetector";
 import {
   EMPTY_METADATA,
   parseJpegHeader,
@@ -35,6 +36,8 @@ export interface SceneSignals {
   exif: Pick<PhotoMetadata, "focalLengthMm" | "fNumber" | "exposureTimeS" | "iso">;
   /** Histogram màu RGB 64 bin, đã chuẩn hoá — dùng phát hiện đổi khung hình lớn. */
   histogram: number[];
+  /** Ảnh xám 16x16 chuẩn hoá (perceptualHash.ts) — so bố cục khi gom burst. Rỗng nếu lỗi. */
+  signature: number[];
 }
 
 export interface CullingTestItem {
@@ -108,7 +111,7 @@ export function scaledCanvas(
   const height = swapsAxes ? drawWidth : drawHeight;
 
   const canvas = new OffscreenCanvas(width, height);
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Không tạo được canvas context");
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
@@ -222,7 +225,8 @@ export async function processOneImage(
   file: File,
   rawFile: File | null,
   options: CullingPipelineOptions,
-  landmarker: FaceLandmarker
+  landmarker: FaceLandmarker,
+  faceDetector: FaceDetector | null
 ): Promise<ProcessedImage> {
   const maxEdgePx = options.maxEdgePx ?? 900;
   const previewMaxEdgePx = options.previewMaxEdgePx ?? 2000;
@@ -267,6 +271,7 @@ export async function processOneImage(
 
   const hashStart = performance.now();
   const hash = computeDHash(canvas, width, height);
+  const signature = computeSimilaritySignature(canvas, width, height);
   const hashMs = performance.now() - hashStart;
 
   // Thumbnail lưới ảnh (900px) và preview full-screen (2000px) — UI không phải decode lại
@@ -278,13 +283,12 @@ export async function processOneImage(
   });
 
   const eyeStart = performance.now();
-  const { faceCount, earValue, faces } = await detectEyeStatus(
-    landmarker,
-    eyeScaled.canvas,
-    eyeScaled.width,
-    eyeScaled.height,
-    options.eyeThresholds
-  );
+  const { faceCount, earValue, faces } = await detectEyeStatus(landmarker, eyeScaled.canvas, {
+    thresholds: options.eyeThresholds,
+    detector: faceDetector,
+    // createImageBitmap mặc định tự xoay theo EXIF JPEG -> cùng khung hình với eyeScaled.
+    loadFullResolution: () => createImageBitmap(file),
+  });
   const eyeMs = performance.now() - eyeStart;
 
   const [thumbnailBlob, previewBlob] = await Promise.all([
@@ -325,6 +329,7 @@ export async function processOneImage(
         iso: metadata.iso,
       },
       histogram,
+      signature,
     },
     usedEmbeddedPreview: source.usedEmbeddedPreview,
     thumbnailBlob,

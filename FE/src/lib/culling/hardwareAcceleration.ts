@@ -1,12 +1,9 @@
 // Bước 1.4 — phát hiện khả năng tăng tốc phần cứng của trình duyệt.
 //
-// LƯU Ý QUAN TRỌNG: MediaPipe FaceLandmarker (đang dùng ở eyeStatus.ts) không chạy qua
-// WebGPU thật (navigator.gpu) — delegate "GPU" của nó dùng WebGL. WebGPU thật (qua ONNX
-// Runtime Web hoặc tương đương) cần model ở định dạng ONNX, trong khi model hiện tại là
-// .task/tflite của Google nên không áp dụng được ở đây. Vì vậy module này detect
-// navigator.gpu để HIỂN THỊ tín hiệu phần cứng, còn tầng tăng tốc thực sự so sánh trong
-// công cụ test là GPU delegate (WebGL) so với WASM delegate (CPU, đa luồng nếu trang được
-// cross-origin isolated). Xem CullingPipelineOptions trong cullingPipeline.ts.
+// Tầng "gpu" giờ chỉ áp dụng cho SCRFD (faceDetector.ts, ONNX Runtime Web qua WebGPU thật);
+// "wasm" chạy SCRFD trên CPU. MediaPipe FaceLandmarker (eyeStatus.ts) luôn chạy CPU ở cả 2
+// tầng — xem lý do ở createFaceLandmarker. Module này detect navigator.gpu để HIỂN THỊ tín
+// hiệu phần cứng trong công cụ test.
 
 export type AccelerationTier = "gpu" | "wasm";
 

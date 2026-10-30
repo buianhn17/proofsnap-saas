@@ -23,15 +23,24 @@ import type {
 import { errorItemResult } from "./errorItemResult";
 
 const JOBS_IN_FLIGHT_PER_WORKER = 2;
-// Trần số worker: mỗi worker tốn ~150-250MB (WASM runtime + model + canvas 2000px) và 1
-// WebGL context; quá 4 thì GPU bị tranh chấp, không nhanh thêm mà dễ hết bộ nhớ trên máy
-// RAM thấp.
-const MAX_POOL_SIZE = 4;
+// Trần số worker: mỗi worker tốn ~150-250MB (WASM runtime + 2 model + canvas 2000px) và 1
+// WebGPU device cho SCRFD. Phần lớn việc mỗi ảnh là CPU (decode, landmark MediaPipe chạy CPU,
+// đo nét, encode JPEG thumbnail/preview); GPU chỉ chạy SCRFD. Đo trên máy 16 luồng (160 ảnh
+// 24MP): 8 worker 15.2 ảnh/s, 12 worker 16.3, 15 worker 16.3 (CPU ~75%) — quá 12 không nhanh
+// thêm vì tranh decode/GPU process của Chrome, chỉ tốn thêm RAM.
+const MAX_POOL_SIZE = 12;
+// Phần luồng CPU dành cho worker — chừa lại cho main thread/UI, luồng decode ảnh và GPU
+// process của trình duyệt.
+const POOL_THREAD_SHARE = 0.75;
 
-/** Số worker mặc định: nửa số luồng CPU (chừa cho main thread/UI và trình duyệt), 1-4. */
+/** Số worker mặc định: ~3/4 số luồng CPU, giới hạn theo RAM (navigator.deviceMemory —
+ * Chrome báo tối đa 8GB) và MAX_POOL_SIZE. */
 export function defaultPoolSize(): number {
-  const threads = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 2 : 2;
-  return Math.max(1, Math.min(MAX_POOL_SIZE, Math.floor(threads / 2)));
+  if (typeof navigator === "undefined") return 2;
+  const threads = navigator.hardwareConcurrency || 2;
+  const memoryGb = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+  const byMemory = memoryGb < 4 ? 2 : memoryGb < 8 ? 4 : MAX_POOL_SIZE;
+  return Math.max(1, Math.min(MAX_POOL_SIZE, byMemory, Math.round(threads * POOL_THREAD_SHARE)));
 }
 
 interface PooledWorker {
@@ -99,9 +108,32 @@ function getPool(size: number): PooledWorker[] {
   return pool.slice(0, size);
 }
 
+// Khởi tạo gồm tải WASM MediaPipe + 2 model (~20MB) và biên dịch shader WebGPU — chậm nhất
+// ở lần đầu (chưa có cache), nhưng quá mức này coi như worker kẹt, báo lỗi thay vì treo UI.
+const INIT_TIMEOUT_MS = 120_000;
+
 function initWorker(pooled: PooledWorker, tier: AccelerationTier): Promise<HardwareInfo> {
+  // Worker có thể đã chết TRƯỚC khi gửi init (ví dụ tải module lỗi) — sự kiện "error" lúc
+  // đó không có pendingInit nào để reject, nếu cứ chờ sẽ treo mãi.
+  if (pooled.fatalError) return Promise.reject(pooled.fatalError);
   return new Promise((resolve, reject) => {
-    pooled.pendingInit = { resolve, reject };
+    const timer = setTimeout(() => {
+      const error = new Error("Khởi tạo worker phân tích ảnh quá lâu — thử tải lại trang.");
+      pooled.pendingInit = null;
+      // Đánh dấu chết để lượt chạy sau thay bằng worker mới (getPool) thay vì dùng lại.
+      pooled.fatalError = error;
+      reject(error);
+    }, INIT_TIMEOUT_MS);
+    pooled.pendingInit = {
+      resolve: (info) => {
+        clearTimeout(timer);
+        resolve(info);
+      },
+      reject: (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    };
     pooled.worker.postMessage({ type: "init", accelerationTier: tier } satisfies WorkerRequest);
   });
 }

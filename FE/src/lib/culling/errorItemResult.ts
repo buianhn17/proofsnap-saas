@@ -30,6 +30,7 @@ export function errorItemResult(message: string): WorkerItemResult {
       timestampSource: "file",
       exif: { focalLengthMm: null, fNumber: null, exposureTimeS: null, iso: null },
       histogram: [],
+      signature: [],
     },
     thumbnailBlob: new Blob([], { type: "image/jpeg" }),
     previewBlob: new Blob([], { type: "image/jpeg" }),

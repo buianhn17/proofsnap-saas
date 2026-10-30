@@ -8,6 +8,7 @@
 
 import { processOneImage } from "./cullingPipeline";
 import { getFaceLandmarker } from "./eyeStatus";
+import { getFaceDetector } from "./faceDetector";
 import { getHardwareInfo, type AccelerationTier } from "./hardwareAcceleration";
 import { errorItemResult } from "./errorItemResult";
 import type { WorkerItemResult, WorkerRequest, WorkerResponse } from "./cullingWorkerProtocol";
@@ -24,7 +25,12 @@ ctx.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const message = event.data;
   if (message.type === "init") {
     accelerationTier = message.accelerationTier;
-    Promise.all([getFaceLandmarker(accelerationTier), getHardwareInfo()])
+    // getFaceDetector không bao giờ reject (thiếu model -> null, dùng detector MediaPipe).
+    Promise.all([
+      getFaceLandmarker(accelerationTier),
+      getHardwareInfo(),
+      getFaceDetector(accelerationTier),
+    ])
       .then(([, hardwareInfo]) => post({ type: "ready", hardwareInfo }))
       .catch((err) =>
         post({
@@ -47,8 +53,11 @@ async function processJob(
 ) {
   let result: WorkerItemResult;
   try {
-    const landmarker = await getFaceLandmarker(accelerationTier);
-    result = await processOneImage(file, rawFile, options, landmarker);
+    const [landmarker, faceDetector] = await Promise.all([
+      getFaceLandmarker(accelerationTier),
+      getFaceDetector(accelerationTier),
+    ]);
+    result = await processOneImage(file, rawFile, options, landmarker, faceDetector);
   } catch (err) {
     // Ảnh hỏng/không decode được: trả item lỗi thay vì làm hỏng cả lượt chạy.
     result = errorItemResult(err instanceof Error ? err.message : "Lỗi không xác định");

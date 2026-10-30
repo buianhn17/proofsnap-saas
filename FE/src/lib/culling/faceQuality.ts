@@ -130,10 +130,23 @@ export function faceFocusScore(faceMeasure: number, eyeMeasure: number | null): 
   return EYE_FOCUS_WEIGHT * eyeScore + (1 - EYE_FOCUS_WEIGHT) * faceScore;
 }
 
-// EAR (eye aspect ratio) của mắt nhắm hẳn ~0.05-0.12, mở bình thường ~0.25-0.35 (giá trị
-// EAR thực tế của lưới MediaPipe, cùng thang với DEFAULT_EYE_THRESHOLDS ở eyeStatus.ts).
-const EAR_CLOSED = 0.12;
-const EAR_OPEN = 0.28;
+// Lưới landmark MediaPipe KHÔNG khép hẳn mí khi mắt nhắm: EAR mắt nhắm thực tế thường
+// ~0.12-0.18 (không về ~0.05 như landmark dlib), mắt mở bình thường ~0.24-0.35. Thang cũ
+// (0.12 -> 0.28) cho mắt nhắm EAR 0.17 tới ~0.3 điểm, cộng trung bình với blendshape là
+// lọt qua ngưỡng BLINK_BELOW — nguyên nhân chính bỏ sót ảnh nhắm mắt.
+const EAR_CLOSED = 0.14;
+const EAR_OPEN = 0.26;
+// Blendshape eyeBlink: mắt mở nhìn thẳng thường < 0.25 (nhìn xuống/cười có thể lên ~0.45),
+// nhắm hẳn thường > 0.6.
+const BLINK_OPEN = 0.25;
+const BLINK_CLOSED = 0.6;
+// Kết hợp nghiêng về tín hiệu "nhắm" hơn: chỉ cần 1 trong 2 chắc chắn mắt nhắm là đủ kéo
+// điểm xuống dưới ngưỡng, nhưng tín hiệu kia vẫn kéo lại được trường hợp nghi ngờ nhẹ.
+const PESSIMISTIC_WEIGHT = 0.7;
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
 
 /**
  * Điểm mở mắt 0 (nhắm tịt) -> 1 (mở to), kết hợp 2 tín hiệu độc lập:
@@ -141,13 +154,17 @@ const EAR_OPEN = 0.28;
  *   dáng mắt từng người (mắt một mí/mắt hẹp có EAR "mở" thấp) và góc nghiêng mặt.
  * - Blendshape eyeBlinkLeft/Right của MediaPipe — model đã huấn luyện riêng để phân loại
  *   nháy mắt, ổn định hơn với dáng mắt nhưng đôi khi "nghi ngờ" mắt nheo khi cười.
- * Lấy trung bình 2 tín hiệu để lỗi của bên này được bên kia kéo lại. blinkScore là MAX
+ * Trộn 70% tín hiệu thấp hơn + 30% tín hiệu cao hơn (thay vì trung bình đều — trung bình
+ * đều khiến 1 tín hiệu "mắt nhắm" rõ ràng bị tín hiệu kia pha loãng). blinkScore là MAX
  * eyeBlinkLeft/Right (1 = nhắm) — chỉ cần 1 mắt nhắm là ảnh đã hỏng; null nếu model không
- * trả blendshape, khi đó chỉ dùng EAR.
+ * trả blendshape, khi đó chỉ dùng EAR. Ảnh trong chùm burst còn được so tương đối với chính
+ * người đó ở các khung khác (burstScoring.ts).
  */
 export function eyeOpenScore(ear: number, blinkScore: number | null): number {
-  const earScore = Math.max(0, Math.min(1, (ear - EAR_CLOSED) / (EAR_OPEN - EAR_CLOSED)));
+  const earScore = clamp01((ear - EAR_CLOSED) / (EAR_OPEN - EAR_CLOSED));
   if (blinkScore === null) return earScore;
-  const blendshapeScore = 1 - Math.max(0, Math.min(1, blinkScore));
-  return (earScore + blendshapeScore) / 2;
+  const blendshapeScore = 1 - clamp01((blinkScore - BLINK_OPEN) / (BLINK_CLOSED - BLINK_OPEN));
+  const low = Math.min(earScore, blendshapeScore);
+  const high = Math.max(earScore, blendshapeScore);
+  return PESSIMISTIC_WEIGHT * low + (1 - PESSIMISTIC_WEIGHT) * high;
 }

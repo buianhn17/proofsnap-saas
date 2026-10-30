@@ -291,6 +291,7 @@ export default function CullingTestPage() {
         timestampSource: item.sceneSignals.timestampSource,
         histogram: item.sceneSignals.histogram,
         hash: item.metrics.hash,
+        signature: item.sceneSignals.signature,
       }))
     );
   }, [summary]);
