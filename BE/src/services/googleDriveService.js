@@ -17,6 +17,12 @@ function createPhotographerOAuthClient(refreshToken) {
   return client;
 }
 
+// Drive client theo từng PTG, dùng lại giữa các request. OAuth2Client giữ access token đã
+// xin và tự xin lại khi gần hết hạn (gộp các lần xin đồng thời thành 1) — trước đây mỗi lần
+// gọi tạo client mới nên MỖI ẢNH upload đều tốn thêm 1 vòng xin token từ Google. Khoá theo
+// cả refresh token đã mã hoá: PTG kết nối lại Google (token mới) thì tạo client mới.
+const driveClients = new Map();
+
 async function getDriveForPhotographer(photographerId) {
   const photographer = await findById(photographerId);
   if (!photographer) {
@@ -26,9 +32,19 @@ async function getDriveForPhotographer(photographerId) {
     throw error;
   }
 
+  const cached = driveClients.get(photographerId);
+  if (cached && cached.encryptedToken === photographer.oauth_refresh_token_encrypted) {
+    return { drive: cached.drive, photographer };
+  }
+
   const refreshToken = decrypt(photographer.oauth_refresh_token_encrypted);
   const auth = createPhotographerOAuthClient(refreshToken);
-  return { drive: google.drive({ version: "v3", auth }), photographer };
+  const drive = google.drive({ version: "v3", auth });
+  driveClients.set(photographerId, {
+    encryptedToken: photographer.oauth_refresh_token_encrypted,
+    drive,
+  });
+  return { drive, photographer };
 }
 
 async function findFolder(drive, name, parentId) {
