@@ -8,13 +8,14 @@ const clientModel = require("../models/clientModel");
 const annotationModel = require("../models/annotationModel");
 const photoFaceEmbeddingModel = require("../models/photoFaceEmbeddingModel");
 const redis = require("../config/redis");
+const { readPhotoBuffer, readPhotoStream } = require("../services/photoFileService");
 const { applyWatermark } = require("../services/watermarkService");
 const {
   resolveSizePreset,
   resizeToLongEdge,
   DOWNLOAD_OPTIMIZED_PRESET,
 } = require("../services/thumbnailService");
-const { downloadFileStream, downloadFileBuffer } = require("../services/googleDriveService");
+const { downloadFileStream } = require("../services/googleDriveService");
 const { detectFaces, largestFace } = require("../services/arcfaceService");
 const { streamPhotosAsZip } = require("../services/zipStreamService");
 
@@ -234,7 +235,7 @@ async function viewPhoto(req, res, next) {
 
     if (!album.watermark_enabled) {
       if (!sizePreset) {
-        const stream = await downloadFileStream(album.photographer_id, photo.drive_file_id);
+        const stream = await readPhotoStream(album.photographer_id, photo);
         res.setHeader("Content-Type", "image/jpeg");
         stream.on("error", (err) => next(err));
         stream.pipe(res);
@@ -248,7 +249,7 @@ async function viewPhoto(req, res, next) {
         return res.send(Buffer.from(cached, "base64"));
       }
 
-      const original = await downloadFileBuffer(album.photographer_id, photo.drive_file_id);
+      const original = await readPhotoBuffer(album.photographer_id, photo, { maxEdgePx: sizePreset.maxEdgePx });
       const resized = await resizeToLongEdge(original, sizePreset.maxEdgePx, sizePreset.quality);
       redis
         .set(cacheKey, resized.toString("base64"), "EX", WATERMARK_CACHE_TTL_SECONDS)
@@ -269,7 +270,7 @@ async function viewPhoto(req, res, next) {
       return res.send(Buffer.from(cached, "base64"));
     }
 
-    let original = await downloadFileBuffer(album.photographer_id, photo.drive_file_id);
+    let original = await readPhotoBuffer(album.photographer_id, photo, { maxEdgePx: sizePreset?.maxEdgePx });
     if (sizePreset) {
       // Resize trước rồi mới watermark — nhẹ hơn (composite SVG lên ảnh nhỏ hơn) và tile
       // watermark vẫn đọc được ở kích thước thumbnail/preview.
@@ -567,7 +568,7 @@ async function downloadPhoto(req, res, next) {
     res.setHeader("Cache-Control", "private, max-age=3600");
 
     if (req.query.quality === "optimized") {
-      const original = await downloadFileBuffer(album.photographer_id, photo.drive_file_id);
+      const original = await readPhotoBuffer(album.photographer_id, photo, { maxEdgePx: DOWNLOAD_OPTIMIZED_PRESET.maxEdgePx });
       const { width = 0, height = 0 } = await sharp(original).metadata();
       // Ảnh gốc đã nhỏ hơn bản tối ưu: nén JPEG lại không giảm kích thước mà còn nặng hơn
       // + giảm chất lượng — trả nguyên ảnh gốc.
@@ -582,7 +583,7 @@ async function downloadPhoto(req, res, next) {
       return res.send(resized);
     }
 
-    const stream = await downloadFileStream(album.photographer_id, photo.drive_file_id);
+    const stream = await readPhotoStream(album.photographer_id, photo);
     stream.on("error", (err) => res.destroy(err));
     stream.pipe(res);
   } catch (error) {

@@ -123,6 +123,7 @@ CREATE TABLE photos (
     face_index_attempts    SMALLINT NOT NULL DEFAULT 0,
     client_upload_id       UUID,                        -- chống upload trùng khi trình duyệt thử lại
     source_drive_file_id   TEXT,                        -- id file trên Drive công khai khi ảnh được nhập từ link (migration 011)
+    storage                TEXT NOT NULL DEFAULT 'drive' CHECK (storage IN ('drive', 'public_link')),  -- migration 012: 'public_link' = liên kết thư mục Drive công khai, xem qua CDN Google
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (album_id, drive_file_id)
 );

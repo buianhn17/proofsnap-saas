@@ -10,9 +10,8 @@ const { saveCrops, enqueueFaceIndex } = require("../services/faceIndexQueue");
 const {
   uploadJpeg,
   deleteFile,
-  downloadFileStream,
-  downloadFileBuffer,
 } = require("../services/googleDriveService");
+const { readPhotoBuffer, readPhotoStream } = require("../services/photoFileService");
 
 const ADMIN_THUMBNAIL_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7;
 
@@ -268,7 +267,7 @@ async function view(req, res, next) {
     // trong Redis vì ảnh gốc không đổi sau upload nên TTL để dài hơn cache watermark.
     const sizePreset = resolveSizePreset(req.query.size);
     if (!sizePreset) {
-      const stream = await downloadFileStream(req.photographer.photographerId, photo.drive_file_id);
+      const stream = await readPhotoStream(req.photographer.photographerId, photo);
       res.setHeader("Content-Type", "image/jpeg");
       stream.on("error", (err) => next(err));
       stream.pipe(res);
@@ -282,7 +281,7 @@ async function view(req, res, next) {
       return res.send(Buffer.from(cached, "base64"));
     }
 
-    const original = await downloadFileBuffer(req.photographer.photographerId, photo.drive_file_id);
+    const original = await readPhotoBuffer(req.photographer.photographerId, photo, { maxEdgePx: sizePreset.maxEdgePx });
     const resized = await resizeToLongEdge(original, sizePreset.maxEdgePx, sizePreset.quality);
     redis
       .set(cacheKey, resized.toString("base64"), "EX", ADMIN_THUMBNAIL_CACHE_TTL_SECONDS)

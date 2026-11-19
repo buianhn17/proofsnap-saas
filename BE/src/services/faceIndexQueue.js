@@ -15,7 +15,7 @@ const path = require("node:path");
 const photoModel = require("../models/photoModel");
 const photoFaceEmbeddingModel = require("../models/photoFaceEmbeddingModel");
 const { detectFaces, detectFacesInCrops } = require("./arcfaceService");
-const { downloadFileBuffer } = require("./googleDriveService");
+const { readPhotoBuffer } = require("./photoFileService");
 
 // onnxruntime-node đã tự dùng nhiều luồng CPU cho mỗi lần chạy model — xử lý 1 ảnh mỗi lúc.
 const CONCURRENCY = 1;
@@ -78,7 +78,10 @@ async function indexPhoto(job) {
   if (saved) {
     faces = await detectFacesInCrops(saved.crops, saved.imageSize);
   } else {
-    const buffer = job.imageBuffer ?? (await downloadFileBuffer(job.photographerId, job.driveFileId));
+    // Ảnh liên kết Drive công khai: lấy bản 2560px qua CDN — đủ chi tiết cho mặt nhỏ trong ảnh tập thể
+    const buffer =
+      job.imageBuffer ??
+      (await readPhotoBuffer(job.photographerId, { storage: job.storage, drive_file_id: job.driveFileId }, { maxEdgePx: 2560 }));
     faces = await detectFaces(buffer);
   }
   await photoFaceEmbeddingModel.createEmbeddingsForPhoto(job.photoId, faces, { replaceExisting: true });
@@ -143,6 +146,7 @@ async function resumePendingFaceIndex() {
       photoId: photo.id,
       photographerId: photo.photographer_id,
       driveFileId: photo.drive_file_id,
+      storage: photo.storage,
     });
   }
   return pending.length;

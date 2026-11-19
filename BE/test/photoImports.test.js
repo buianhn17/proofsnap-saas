@@ -4,7 +4,6 @@ const assert = require("node:assert/strict");
 const { randomUUID } = require("node:crypto");
 const { test, before, after } = require("node:test");
 const jwt = require("jsonwebtoken");
-const sharp = require("sharp");
 const request = require("supertest");
 const { loadEnv } = require("../src/config/env");
 
@@ -12,7 +11,6 @@ loadEnv();
 const pool = require("../src/config/db");
 const publicDrive = require("../src/services/publicDriveService");
 const importQueue = require("../src/services/photoImportQueue");
-const driveService = require("../src/services/googleDriveService");
 const faceIndexQueue = require("../src/services/faceIndexQueue");
 const { createApp } = require("../src/app");
 
@@ -37,25 +35,23 @@ test("EXIF capture time is read as Vietnam time", () => {
   assert.equal(publicDrive.exifTimeToIso(undefined), null);
 });
 
-test("imported JPGs are resized to the album preset and keep EXIF", async () => {
-  const big = await sharp({ create: { width: 5000, height: 3000, channels: 3, background: "#336699" } })
-    .withMetadata({ exif: { IFD0: { Make: "Canon", Model: "EOS R6" } } })
-    .jpeg()
-    .toBuffer();
-  const out = await importQueue.prepareJpeg(big, { max_long_edge_px: 2560, jpeg_quality: 85 });
-  const meta = await sharp(out).metadata();
-  assert.equal(meta.width, 2560);
-  assert.equal(meta.height, 1536);
-  assert.ok(meta.exif, "EXIF giữ lại");
+test("fetchCdnImage requests the requested edge size from Google's image CDN", async () => {
+  const image = Buffer.from("image bytes");
+  let requestedUrl;
+  const result = await publicDrive.fetchCdnImage("drive-file-123", 2560, {
+    fetchImpl: async (url) => {
+      requestedUrl = String(url);
+      return new Response(image, { status: 200, headers: { "content-type": "image/jpeg" } });
+    },
+  });
 
-  const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: "#000" } }).png().toBuffer();
-  await assert.rejects(importQueue.prepareJpeg(png, { max_long_edge_px: 2560, jpeg_quality: 85 }), { code: "NOT_JPEG" });
+  assert.equal(requestedUrl, "https://lh3.googleusercontent.com/d/drive-file-123=s2560");
+  assert.deepEqual(result, image);
 });
 
 // ------------------------------------------------------------------ Drive giả lập
 
 const FOLDER = "application/vnd.google-apps.folder";
-let jpegBytes;
 const fakeDrive = {
   ROOTFOLDER123: { id: "ROOTFOLDER123", name: "Ky yeu 12A5", mimeType: FOLDER },
   SUBFOLDER4567: { id: "SUBFOLDER4567", name: "JPG", mimeType: FOLDER },
@@ -64,13 +60,13 @@ const fakeDrive = {
 const children = {
   ROOTFOLDER123: [
     [
-      { id: "IMG_A_0000001", name: "DSC_0001.JPG", mimeType: "image/jpeg", size: "1000", imageMediaMetadata: { time: "2026:11:20 08:00:00" } },
+      { id: "IMG_A_0000001", name: "DSC_0001.JPG", mimeType: "image/jpeg", size: "1000", imageMediaMetadata: { time: "2026:11:20 08:00:00", width: 3000, height: 2000 } },
       { id: "SUBFOLDER4567", name: "JPG", mimeType: FOLDER },
       { id: "RAW_0000001", name: "DSC_0001.CR3", mimeType: "image/x-canon-cr3" },
     ],
-    [{ id: "IMG_B_0000002", name: "DSC_0002.jpg", mimeType: "image/jpeg", size: "1000" }],
+    [{ id: "IMG_B_0000002", name: "DSC_0002.jpg", mimeType: "image/jpeg", size: "1000", imageMediaMetadata: { width: 4000, height: 3000 } }],
   ],
-  SUBFOLDER4567: [[{ id: "IMG_C_0000003", name: "DSC_0003.jpeg", mimeType: "image/jpeg", size: "1000" }]],
+  SUBFOLDER4567: [[{ id: "IMG_C_0000003", name: "DSC_0003.jpeg", mimeType: "image/jpeg", size: "1000", imageMediaMetadata: { width: 1000, height: 800 } }]],
 };
 
 function json(status, body) {
@@ -91,7 +87,6 @@ async function fakeFetch(input) {
     });
   }
   const id = path.replace("files/", "");
-  if (url.searchParams.get("alt") === "media") return new Response(jpegBytes, { status: 200 });
   if (id in fakeDrive && fakeDrive[id] === null) return json(404, { error: { message: "File not found", errors: [{ reason: "notFound" }] } });
   return json(200, fakeDrive[id]);
 }
@@ -118,17 +113,11 @@ let albumId;
 const originals = {};
 
 before(async () => {
-  jpegBytes = await sharp({ create: { width: 3000, height: 2000, channels: 3, background: "#aa5533" } }).jpeg().toBuffer();
   originals.fetch = globalThis.fetch;
-  originals.uploadJpeg = driveService.uploadJpeg;
-  originals.deleteFile = driveService.deleteFile;
   originals.enqueueFaceIndex = faceIndexQueue.enqueueFaceIndex;
   originals.apiKey = process.env.GOOGLE_API_KEY;
 
   globalThis.fetch = fakeFetch;
-  let n = 0;
-  driveService.uploadJpeg = async () => ({ id: `copied-${++n}-${randomUUID()}` });
-  driveService.deleteFile = async () => {};
   faceIndexQueue.enqueueFaceIndex = () => {};
 
   await pool.query(
@@ -147,8 +136,6 @@ before(async () => {
 
 after(async () => {
   globalThis.fetch = originals.fetch;
-  driveService.uploadJpeg = originals.uploadJpeg;
-  driveService.deleteFile = originals.deleteFile;
   faceIndexQueue.enqueueFaceIndex = originals.enqueueFaceIndex;
   if (originals.apiKey === undefined) delete process.env.GOOGLE_API_KEY;
   else process.env.GOOGLE_API_KEY = originals.apiKey;
@@ -182,7 +169,7 @@ test("import explains missing API key, bad links and private folders", async () 
   assert.equal(privateFolder.body.error, "DRIVE_NOT_PUBLIC");
 });
 
-test("importing a public folder copies every JPG into the album", async () => {
+test("importing a public folder links every JPG without copying or resizing it", async () => {
   const response = await request(app).post(importsUrl()).set("Cookie", cookie).send({ url: folderLink });
   assert.equal(response.statusCode, 202);
   assert.equal(response.body.import.total_files, 3);
@@ -196,12 +183,13 @@ test("importing a public folder copies every JPG into the album", async () => {
   assert.equal(progress.body.import.failed_count, 0);
 
   const { rows } = await pool.query(
-    "SELECT original_base_filename, width, height, source_drive_file_id, captured_at FROM photos WHERE album_id = $1 ORDER BY original_base_filename",
+    "SELECT original_base_filename, drive_file_id, width, height, source_drive_file_id, storage, captured_at FROM photos WHERE album_id = $1 ORDER BY original_base_filename",
     [albumId]
   );
   assert.deepEqual(rows.map((r) => r.original_base_filename), ["DSC_0001", "DSC_0002", "DSC_0003"]);
-  // Mức nén "Trung bình" của album: cạnh dài 1920px
-  assert.ok(rows.every((r) => Math.max(r.width, r.height) === 1920));
+  assert.deepEqual(rows.map((r) => r.drive_file_id), ["IMG_A_0000001", "IMG_B_0000002", "IMG_C_0000003"]);
+  assert.deepEqual(rows.map((r) => [r.width, r.height]), [[3000, 2000], [4000, 3000], [1000, 800]]);
+  assert.ok(rows.every((r) => r.storage === "public_link"));
   assert.ok(rows.every((r) => r.source_drive_file_id));
   assert.equal(rows[0].captured_at.toISOString(), "2026-11-20T01:00:00.000Z");
 });

@@ -1,102 +1,29 @@
-// Chạy nền các lượt nhập ảnh từ link Drive công khai (photo_imports).
-// Mỗi ảnh: tải từ Drive công khai → nén theo mức nén của album (giữ EXIF) → chép vào Drive
-// của PTG như ảnh upload thường → tạo dòng photos → đưa vào hàng đợi trích khuôn mặt.
-// Lượt nhập chạy lần lượt (1 lượt một lúc trên server), trong 1 lượt tải 3 ảnh song song.
-// Tiến độ ghi vào DB sau từng ảnh; server khởi động lại thì resumeImports() chạy tiếp.
-const sharp = require("sharp");
+// Chạy nền các lượt nhập ảnh từ link Drive công khai (photo_imports) — chế độ LIÊN KẾT:
+// không tải ảnh gốc, không nén, không upload lại; chỉ ghi mỗi ảnh 1 dòng photos trỏ tới file
+// trên Drive công khai (storage = 'public_link'). Ảnh được xem/tải qua CDN ảnh của Google đúng
+// cỡ cần dùng (photoFileService.js). 1.000 ảnh nhập xong trong vài giây.
+//
+// Trước đây chép từng ảnh (tải gốc → nén → upload Drive PTG): ~3 giây/ảnh, và API tải file
+// của Google chặn IP máy chủ (trang "Sorry…" 403) khi tải hàng trăm ảnh liên tục.
+//
+// Trích khuôn mặt cho Face Search vẫn chạy nền sau đó (faceIndexQueue), lấy ảnh 2560px qua CDN.
+// Server khởi động lại thì resumeImports() chạy tiếp lượt còn dở.
 const albumModel = require("../models/albumModel");
 const photoModel = require("../models/photoModel");
 const importModel = require("../models/photoImportModel");
 // Gọi qua object module (không destructure) để test thay được bằng bản giả
 const publicDrive = require("./publicDriveService");
-const driveService = require("./googleDriveService");
 const faceIndexQueue = require("./faceIndexQueue");
 
-const CONCURRENCY = 3;
+const PROGRESS_FLUSH_EVERY = 50;
 const queue = [];
 const queued = new Set();
 const idleWaiters = new Set();
 let pumping = false;
 
-function importError(code, message) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
-}
-
-async function displaySize(buffer) {
-  const meta = await sharp(buffer).metadata();
-  const swapsAxes = meta.orientation >= 5 && meta.orientation <= 8;
-  return { width: swapsAxes ? meta.height : meta.width, height: swapsAxes ? meta.width : meta.height };
-}
-
-/** Nén theo mức nén của album, giữ EXIF (giờ chụp, hướng xoay) như ảnh upload từ trình duyệt. */
-async function prepareJpeg(buffer, preset) {
-  let meta;
-  try {
-    meta = await sharp(buffer, { limitInputPixels: 300_000_000 }).metadata();
-  } catch {
-    throw importError("NOT_AN_IMAGE", "File hỏng hoặc không phải ảnh");
-  }
-  if (meta.format !== "jpeg") throw importError("NOT_JPEG", "Không phải ảnh JPG");
-  return sharp(buffer, { limitInputPixels: 300_000_000 })
-    .resize({
-      width: preset.max_long_edge_px,
-      height: preset.max_long_edge_px,
-      fit: "inside",
-      withoutEnlargement: true,
-    })
-    .withMetadata()
-    .jpeg({ quality: preset.jpeg_quality, mozjpeg: true })
-    .toBuffer();
-}
-
 function baseName(fileName) {
   const withoutExt = fileName.replace(/\.[^.]+$/, "").trim();
   return (withoutExt || fileName).slice(0, 255);
-}
-
-async function importOne({ album, photographerId, preset, image }) {
-  const original = await publicDrive.downloadPublicFile(image.id, { expectedSize: image.size });
-  const prepared = await prepareJpeg(original, preset);
-  const size = await displaySize(prepared);
-
-  const driveFile = await driveService.uploadJpeg(photographerId, album.drive_folder_id, {
-    originalname: image.name,
-    buffer: prepared,
-  });
-  let photo;
-  try {
-    photo = await photoModel.createPhoto({
-      albumId: album.id,
-      driveFileId: driveFile.id,
-      originalBaseFilename: baseName(image.name),
-      width: size.width,
-      height: size.height,
-      fileSizeBytes: prepared.length,
-      capturedAt: image.capturedAt,
-      sourceDriveFileId: image.id,
-    });
-  } catch (error) {
-    // Bản chép trên Drive của PTG không còn dòng photos nào trỏ tới → xoá cho khỏi rác
-    await driveService.deleteFile(photographerId, driveFile.id).catch(() => {});
-    if (error.code === "23505") throw importError("ALREADY_IMPORTED", "Ảnh đã có trong album");
-    throw error;
-  }
-  faceIndexQueue.enqueueFaceIndex({
-    photoId: photo.id,
-    photographerId,
-    driveFileId: photo.drive_file_id,
-    imageBuffer: prepared,
-  });
-}
-
-function failureReason(error) {
-  if (error.code === "NOT_JPEG" || error.code === "NOT_AN_IMAGE") return error.message;
-  if (error.code === "DRIVE_FILE_TOO_LARGE") return error.message;
-  if (error.code === "DRIVE_NOT_PUBLIC") return "Không còn quyền xem file này trên Drive";
-  if (error.code === "DRIVE_QUOTA_EXCEEDED") return "Google Drive giới hạn lượt tải";
-  return "Lỗi khi tải hoặc lưu ảnh";
 }
 
 async function runImport({ id, listing }) {
@@ -108,7 +35,6 @@ async function runImport({ id, listing }) {
     await importModel.finishImport(id, "failed", "Album đã khoá hoặc lưu trữ — dừng nhập ảnh");
     return;
   }
-  const preset = await importModel.findCompressionPreset(album.compression_preset_id);
 
   // Lượt mới đã liệt kê sẵn lúc tạo; lượt chạy tiếp sau khi server khởi động lại thì liệt kê lại
   const source = listing ?? (await publicDrive.listPublicImages({ kind: job.source_kind, id: job.source_id }));
@@ -120,29 +46,50 @@ async function runImport({ id, listing }) {
     unsupportedCount: source.unsupportedCount,
   });
 
-  let cursor = 0;
-  let cancelled = false;
-  const worker = async () => {
-    while (cursor < todo.length && !cancelled) {
-      if ((await importModel.getStatus(id)) === "cancelled") {
-        cancelled = true;
-        return;
-      }
-      const image = todo[cursor++];
-      try {
-        await importOne({ album, photographerId: job.photographer_id, preset, image });
-        await importModel.addImported(id);
-      } catch (error) {
-        if (error.code === "ALREADY_IMPORTED") {
-          await importModel.addSkippedExisting(id);
-        } else {
-          console.error(`Nhập ảnh ${image.name} thất bại:`, error.message);
-          await importModel.addFailed(id, { name: image.name, reason: failureReason(error) });
-        }
+  let imported = 0;
+  let skipped = 0;
+  const flush = async () => {
+    if (imported || skipped) await importModel.addProgress(id, { imported, skipped });
+    imported = 0;
+    skipped = 0;
+  };
+
+  for (let i = 0; i < todo.length; i++) {
+    if (i % PROGRESS_FLUSH_EVERY === 0 && (await importModel.getStatus(id)) === "cancelled") {
+      await flush();
+      return;
+    }
+    const image = todo[i];
+    try {
+      const photo = await photoModel.createPhoto({
+        albumId: album.id,
+        driveFileId: image.id,
+        originalBaseFilename: baseName(image.name),
+        width: image.width,
+        height: image.height,
+        fileSizeBytes: image.size,
+        capturedAt: image.capturedAt,
+        sourceDriveFileId: image.id,
+        storage: "public_link",
+      });
+      faceIndexQueue.enqueueFaceIndex({
+        photoId: photo.id,
+        photographerId: job.photographer_id,
+        driveFileId: image.id,
+        storage: "public_link",
+      });
+      imported += 1;
+    } catch (error) {
+      if (error.code === "23505") {
+        skipped += 1; // đã có trong album (2 lượt chồng nhau hoặc file trùng trong thư mục con)
+      } else {
+        console.error(`Liên kết ảnh ${image.name} thất bại:`, error.message);
+        await importModel.addFailed(id, { name: image.name, reason: "Không lưu được ảnh" });
       }
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, Math.max(1, todo.length)) }, worker));
+    if ((i + 1) % PROGRESS_FLUSH_EVERY === 0) await flush();
+  }
+  await flush();
 
   const final = await importModel.findImportForWorker(id);
   if (final.status === "cancelled") return;
@@ -195,4 +142,4 @@ function whenIdle() {
   return new Promise((resolve) => idleWaiters.add(resolve));
 }
 
-module.exports = { enqueueImport, resumeImports, whenIdle, prepareJpeg };
+module.exports = { enqueueImport, resumeImports, whenIdle };

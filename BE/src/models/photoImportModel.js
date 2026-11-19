@@ -60,7 +60,10 @@ async function markRunning(importId, { totalFiles, skippedExisting, unsupportedC
   await pool.query(
     `UPDATE photo_imports
      SET status = 'running', started_at = COALESCE(started_at, now()), total_files = $2,
-         skipped_existing_count = $3, unsupported_count = $4
+         skipped_existing_count = $3, unsupported_count = $4,
+         -- Chạy (lại) từ đầu: ảnh của lần chạy trước đã nằm trong skipped_existing_count,
+         -- lỗi cũ được thử lại — đếm lại để imported + skipped + failed = total
+         imported_count = 0, failed_count = 0, failed_files = '[]'::jsonb
      WHERE id = $1 AND status IN ('queued', 'running')`,
     [importId, totalFiles, skippedExisting, unsupportedCount]
   );
@@ -68,6 +71,16 @@ async function markRunning(importId, { totalFiles, skippedExisting, unsupportedC
 
 async function addImported(importId) {
   await pool.query("UPDATE photo_imports SET imported_count = imported_count + 1 WHERE id = $1", [importId]);
+}
+
+/** Cộng dồn tiến độ theo lô (đỡ 1 câu UPDATE cho mỗi ảnh). */
+async function addProgress(importId, { imported = 0, skipped = 0 }) {
+  await pool.query(
+    `UPDATE photo_imports
+     SET imported_count = imported_count + $2, skipped_existing_count = skipped_existing_count + $3
+     WHERE id = $1`,
+    [importId, imported, skipped]
+  );
 }
 
 async function addSkippedExisting(importId) {
@@ -136,6 +149,7 @@ module.exports = {
   getStatus,
   markRunning,
   addImported,
+  addProgress,
   addSkippedExisting,
   addFailed,
   finishImport,

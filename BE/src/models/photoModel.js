@@ -3,7 +3,7 @@ const pool = require("../config/db");
 const PHOTO_COLUMNS = `
   id, album_id, scene_id, burst_cluster_id, drive_file_id,
   original_base_filename, width, height, file_size_bytes, captured_at,
-  sharpness_score, eye_status, culling_flag, is_best_in_cluster, face_index_status, created_at
+  sharpness_score, eye_status, culling_flag, is_best_in_cluster, face_index_status, storage, created_at
 `;
 
 // Thứ tự ảnh trong album: theo giờ chụp (EXIF), ảnh không có giờ chụp xếp sau theo tên file
@@ -51,6 +51,7 @@ async function createPhoto({
   isBestInCluster,
   clientUploadId,
   sourceDriveFileId,
+  storage = "drive",
 }) {
   // face_index_status = 'pending': embedding khuôn mặt được trích nền sau khi trả lời upload
   // (faceIndexQueue.js).
@@ -59,8 +60,8 @@ async function createPhoto({
       album_id, drive_file_id, original_base_filename, width, height,
       file_size_bytes, captured_at, sharpness_score, eye_status, culling_flag,
       scene_id, burst_cluster_id, is_best_in_cluster, client_upload_id, source_drive_file_id,
-      face_index_status
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'pending')
+      storage, face_index_status
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending')
     RETURNING ${PHOTO_COLUMNS}`,
     [
       albumId,
@@ -78,6 +79,7 @@ async function createPhoto({
       isBestInCluster ?? false,
       clientUploadId ?? null,
       sourceDriveFileId ?? null,
+      storage,
     ]
   );
   return result.rows[0];
@@ -111,7 +113,7 @@ async function incrementFaceIndexAttempts(photoId) {
 /** Ảnh còn chờ trích embedding — chạy tiếp khi server khởi động lại. */
 async function listPendingFaceIndex() {
   const result = await pool.query(
-    `SELECT p.id, p.drive_file_id, a.photographer_id
+    `SELECT p.id, p.drive_file_id, p.storage, a.photographer_id
      FROM photos p
      JOIN albums a ON a.id = p.album_id
      WHERE p.face_index_status = 'pending'
@@ -131,7 +133,7 @@ async function existsById(photoId) {
 // (không phải theo từng khách), khớp cách Bước 4.1 tổng hợp "toàn bộ ảnh đã chọn theo album".
 async function listSelectedForAlbum(albumId) {
   const result = await pool.query(
-    `SELECT id, drive_file_id, original_base_filename
+    `SELECT id, drive_file_id, storage, original_base_filename
      FROM photos
      WHERE album_id = $1 AND EXISTS (SELECT 1 FROM selections s WHERE s.photo_id = photos.id)
      ORDER BY ${ALBUM_PHOTO_ORDER}`,
@@ -145,7 +147,7 @@ async function listSelectedForAlbum(albumId) {
 // để tải ảnh gốc không watermark của ảnh nằm ngoài tập được mở khóa.
 async function findSelectedInAlbum(albumId, photoId) {
   const result = await pool.query(
-    `SELECT id, drive_file_id, original_base_filename
+    `SELECT id, drive_file_id, storage, original_base_filename
      FROM photos
      WHERE album_id = $1 AND id = $2
        AND EXISTS (SELECT 1 FROM selections s WHERE s.photo_id = photos.id)`,

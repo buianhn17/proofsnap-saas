@@ -110,7 +110,7 @@ async function driveFetch(path, params, { fetchImpl = fetch, as = "json", attemp
   }
 }
 
-const FILE_FIELDS = "id,name,mimeType,size,imageMediaMetadata(time,width,height)";
+const FILE_FIELDS = "id,name,mimeType,size,imageMediaMetadata(time,width,height,rotation)";
 
 function isJpeg(file) {
   return file.mimeType === "image/jpeg" || /\.jpe?g$/i.test(file.name ?? "");
@@ -126,11 +126,16 @@ function exifTimeToIso(value) {
 }
 
 function toImage(file) {
+  const meta = file.imageMediaMetadata ?? {};
+  // rotation: số lần xoay 90° theo EXIF — CDN trả ảnh đã xoay đúng chiều, nên đảo cạnh cho khớp
+  const swap = meta.rotation === 1 || meta.rotation === 3;
   return {
     id: file.id,
     name: file.name,
     size: file.size ? Number(file.size) : null,
-    capturedAt: exifTimeToIso(file.imageMediaMetadata?.time),
+    width: (swap ? meta.height : meta.width) ?? null,
+    height: (swap ? meta.width : meta.height) ?? null,
+    capturedAt: exifTimeToIso(meta.time),
   };
 }
 
@@ -197,7 +202,36 @@ async function listPublicImages(link, { fetchImpl } = {}) {
   return { kind: "folder", id: root.id, name: root.name, images, unsupportedCount };
 }
 
-/** Tải nội dung 1 file công khai về bộ nhớ. */
+// CDN ảnh của Google cho file Drive công khai: trả đúng cỡ yêu cầu (=s<cạnh dài>, =s0 là cỡ
+// gốc), đã xoay đúng chiều, giữ EXIF — nhanh (~0,5 giây) và không bị giới hạn như API tải file
+// (API alt=media chặn IP máy chủ khi tải hàng trăm ảnh liên tục). Đây là cách các app như
+// Shotpik hiển thị ảnh từ link Drive.
+const CDN_BASE = "https://lh3.googleusercontent.com/d";
+
+async function fetchCdnImage(fileId, maxEdgePx = 0, { fetchImpl = fetch, attempts = 3 } = {}) {
+  const size = maxEdgePx > 0 ? `s${Math.round(maxEdgePx)}` : "s0";
+  const url = `${CDN_BASE}/${encodeURIComponent(fileId)}=${size}`;
+  for (let attempt = 1; ; attempt++) {
+    const response = await fetchImpl(url, { redirect: "follow" });
+    const type = response.headers.get("content-type") ?? "";
+    if (response.ok && type.startsWith("image/")) {
+      return Buffer.from(await response.arrayBuffer());
+    }
+    if (response.status === 403 || response.status === 404 || (response.ok && !type.startsWith("image/"))) {
+      throw driveError(
+        404,
+        "DRIVE_SOURCE_UNAVAILABLE",
+        "Ảnh gốc trên Google Drive không còn xem được — thư mục đã bị xoá hoặc tắt chia sẻ công khai."
+      );
+    }
+    if (attempt >= attempts) {
+      throw driveError(502, "DRIVE_REQUEST_FAILED", `CDN ảnh Google trả lỗi ${response.status}`);
+    }
+    await sleep(400 * 2 ** (attempt - 1));
+  }
+}
+
+/** Tải nội dung 1 file công khai về bộ nhớ (API Drive — dễ bị giới hạn, chỉ dùng khi cần). */
 async function downloadPublicFile(fileId, { fetchImpl, expectedSize } = {}) {
   if (expectedSize && expectedSize > MAX_FILE_BYTES) {
     throw driveError(400, "DRIVE_FILE_TOO_LARGE", "Ảnh lớn hơn 80 MB");
@@ -209,6 +243,7 @@ module.exports = {
   parseDriveLink,
   listPublicImages,
   downloadPublicFile,
+  fetchCdnImage,
   exifTimeToIso,
   getApiKey,
   MAX_IMAGES,
