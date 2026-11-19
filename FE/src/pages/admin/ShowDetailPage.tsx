@@ -18,11 +18,14 @@ import {
   type CulledStats,
   type ShowDetailResponse,
   type ShowMember,
+  type ShowStatus,
   type ShowSubmission,
   type StudioShow,
   type ViewerRole,
 } from "../../lib/studioShows";
 import Dialog, { dialogInputClass, dialogLabelClass, ghostButtonClass, primaryButtonClass } from "../../components/Dialog";
+import Breadcrumbs from "../../components/ui/Breadcrumbs";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import {
   CopyButton,
   CrewAvatar,
@@ -32,7 +35,6 @@ import {
 } from "../../components/studio/StudioBits";
 import {
   AlertTriangleIcon,
-  ArrowLeftIcon,
   CameraIcon,
   CheckIcon,
   ExternalLinkIcon,
@@ -101,7 +103,7 @@ export default function ShowDetailPage() {
   if (error) {
     return (
       <div className="flex flex-col items-start gap-4">
-        <BackLink />
+        <BackLink current="Không tải được" />
         <p role="alert" className="rounded-2xl border border-rose-500/20 bg-rose-950/40 p-4 text-sm text-rose-300">{error}</p>
       </div>
     );
@@ -125,12 +127,13 @@ export default function ShowDetailPage() {
     <div className="flex flex-col gap-8">
       {/* Header */}
       <div className="flex flex-col gap-4">
-        <BackLink tab={isEditor ? "editor" : isStudio ? "studio" : "crew"} />
+        <BackLink tab={isEditor ? "editor" : isStudio ? "studio" : "crew"} current={`${show.class_name} — ${show.school_name}`} />
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <p className="font-mono text-xs tabular-nums text-zinc-400">
               {formatDisplayDate(show.shoot_date)} · kết thúc chụp {formatDateTime(show.shoot_end_time)}
             </p>
+            <title>{`${show.class_name} — ${show.school_name} · LensProof`}</title>
             <h1 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">
               {show.class_name} <span className="text-zinc-500">—</span> {show.school_name}
             </h1>
@@ -146,13 +149,6 @@ export default function ShowDetailPage() {
                   {show.invite_code}
                 </span>
                 <CopyButton value={inviteLink(show.invite_code)} label="Copy link mời" size="md" />
-                <button
-                  type="button"
-                  onClick={() => setDeleteOpen(true)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-rose-500/30 px-4 py-2.5 text-sm font-semibold text-rose-300 transition hover:bg-rose-500/10"
-                >
-                  <TrashIcon size={15} /> Xoá show
-                </button>
               </>
             )}
             {isEditor && (
@@ -168,6 +164,8 @@ export default function ShowDetailPage() {
           </div>
         </div>
       </div>
+
+      {isStudio && <ShowAdminBar show={show} onChanged={applyChanged} onDelete={() => setDeleteOpen(true)} />}
 
       {isEditor && (
         <p className="flex items-start gap-2 rounded-2xl border border-fuchsia-500/20 bg-fuchsia-950/20 p-4 text-sm text-fuchsia-100">
@@ -191,7 +189,7 @@ export default function ShowDetailPage() {
         />
       </div>
 
-      <CrewSection members={members} isStudio={isStudio} />
+      <CrewSection members={members} isStudio={isStudio} showId={show.id} onChanged={applyChanged} />
 
       {actionError && (
         <p role="alert" className="rounded-xl border border-rose-500/20 bg-rose-950/40 p-3 text-sm text-rose-300">{actionError}</p>
@@ -221,11 +219,119 @@ export default function ShowDetailPage() {
   );
 }
 
-function BackLink({ tab = "studio" }: { tab?: string }) {
+function BackLink({ tab = "studio", current }: { tab?: string; current: string }) {
+  return <Breadcrumbs items={[{ label: "Bàn giao Ekip", to: `/admin/shows?tab=${tab}` }, { label: current }]} />;
+}
+
+// ------------------------------------------------------------------ quản lý show (chủ Studio)
+
+const STATUS_META: Record<ShowStatus, { label: string; hint: string; className: string; dot: string }> = {
+  open: {
+    label: "Đang nhận bàn giao",
+    hint: "Thợ và editor vào được bằng mã mời",
+    className: "border-emerald-500/30 bg-emerald-950/60 text-emerald-300",
+    dot: "bg-emerald-400",
+  },
+  completed: {
+    label: "Đã chốt file gốc",
+    hint: "Không nhận thợ mới; editor vẫn vào và nộp ảnh hậu kỳ",
+    className: "border-indigo-500/30 bg-indigo-950/60 text-indigo-200",
+    dot: "bg-indigo-400",
+  },
+  archived: {
+    label: "Lưu trữ",
+    hint: "Không nhận thêm thành viên hay bài nộp",
+    className: "border-white/10 bg-zinc-800/80 text-zinc-300",
+    dot: "bg-zinc-400",
+  },
+};
+
+const STATUS_ACTIONS: Record<ShowStatus, { to: ShowStatus; label: string }[]> = {
+  open: [
+    { to: "completed", label: "Chốt file gốc" },
+    { to: "archived", label: "Lưu trữ" },
+  ],
+  completed: [
+    { to: "open", label: "Mở lại nhận file gốc" },
+    { to: "archived", label: "Lưu trữ" },
+  ],
+  archived: [{ to: "open", label: "Mở lại show" }],
+};
+
+function ShowAdminBar({ show, onChanged, onDelete }: { show: StudioShow; onChanged: () => void; onDelete: () => void }) {
+  const [busyStatus, setBusyStatus] = useState<ShowStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [rotateOpen, setRotateOpen] = useState(false);
+  const meta = STATUS_META[show.status];
+
+  async function changeStatus(status: ShowStatus) {
+    setBusyStatus(status);
+    setError(null);
+    try {
+      await api.patch(`/api/studio/shows/${show.id}`, { status });
+      onChanged();
+    } catch (err) {
+      setError(getErrorMessage(err, "Không đổi được trạng thái show, thử lại."));
+    } finally {
+      setBusyStatus(null);
+    }
+  }
+
   return (
-    <Link to={`/admin/shows?tab=${tab}`} className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-white">
-      <ArrowLeftIcon size={14} /> Bàn giao Ekip
-    </Link>
+    <section aria-label="Quản lý show" className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-zinc-900/50 p-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 text-xs font-semibold ${meta.className}`}>
+          <span className={`size-1.5 rounded-full ${meta.dot}`} aria-hidden="true" />
+          {meta.label}
+        </span>
+        <span className="truncate text-xs text-zinc-400">{meta.hint}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {STATUS_ACTIONS[show.status].map((action) => (
+          <button
+            key={action.to}
+            type="button"
+            onClick={() => changeStatus(action.to)}
+            disabled={busyStatus !== null}
+            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+          >
+            {busyStatus === action.to ? "Đang lưu…" : action.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => setRotateOpen(true)}
+          className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-white/5 hover:text-white"
+        >
+          Đổi mã mời
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-rose-500/30 px-3 py-2 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/10"
+        >
+          <TrashIcon size={13} /> Xoá show
+        </button>
+      </div>
+      {error && <p role="alert" className="text-xs text-rose-300 lg:basis-full">{error}</p>}
+      <ConfirmDialog
+        open={rotateOpen}
+        onClose={() => setRotateOpen(false)}
+        title="Đổi mã mời?"
+        description={`Mã hiện tại: ${show.invite_code}`}
+        confirmLabel="Đổi mã mới"
+        onConfirm={async () => {
+          try {
+            await api.post(`/api/studio/shows/${show.id}/rotate-invite`);
+          } catch (err) {
+            throw new Error(getErrorMessage(err, "Không đổi được mã mời, thử lại."));
+          }
+          onChanged();
+        }}
+      >
+        <p>Mã và link mời cũ hết hiệu lực ngay. Người đã tham gia vẫn giữ nguyên — nhớ gửi mã mới vào nhóm ekip.</p>
+      </ConfirmDialog>
+    </section>
   );
 }
 
@@ -246,8 +352,19 @@ function memberBadges(member: ShowMember): ("photo" | "video" | "editor" | "crew
   return kinds.length > 0 ? kinds : ["crew"];
 }
 
-function CrewSection({ members, isStudio }: { members: ShowMember[]; isStudio: boolean }) {
+function CrewSection({
+  members,
+  isStudio,
+  showId,
+  onChanged,
+}: {
+  members: ShowMember[];
+  isStudio: boolean;
+  showId: string;
+  onChanged: () => void;
+}) {
   const { photographer } = useAuth();
+  const [kickTarget, setKickTarget] = useState<ShowMember | null>(null);
   const waiting = members.filter((m) => m.role_type === "crew" && m.submission_count === 0).length;
   return (
     <section aria-labelledby="crew-heading" className="rounded-2xl border border-white/10 bg-zinc-900/50 p-5">
@@ -286,11 +403,50 @@ function CrewSection({ members, isStudio }: { members: ShowMember[]; isStudio: b
                 {m.submission_count > 0 && (
                   <span className="shrink-0 text-[11px] tabular-nums text-zinc-500">{m.submission_count} bài</span>
                 )}
+                {isStudio && m.user_id !== photographer?.id && (
+                  <button
+                    type="button"
+                    onClick={() => setKickTarget(m)}
+                    aria-label={`Mời ${name} ra khỏi show`}
+                    title="Mời ra khỏi show"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-rose-500/10 hover:text-rose-300"
+                  >
+                    <XIcon size={14} />
+                  </button>
+                )}
               </li>
             );
           })}
         </ul>
       )}
+      <ConfirmDialog
+        open={kickTarget !== null}
+        onClose={() => setKickTarget(null)}
+        tone="danger"
+        title={`Mời ${kickTarget?.display_name || kickTarget?.email || "thành viên"} ra khỏi show?`}
+        confirmLabel="Mời ra"
+        onConfirm={async () => {
+          if (!kickTarget) return;
+          try {
+            await api.delete(`/api/studio/shows/${showId}/members/${kickTarget.id}`);
+          } catch (err) {
+            throw new Error(getErrorMessage(err, "Không mời ra được, thử lại."));
+          }
+          onChanged();
+        }}
+      >
+        {kickTarget && kickTarget.submission_count > 0 ? (
+          <p>
+            <strong className="text-rose-200">
+              <span className="tabular-nums">{kickTarget.submission_count}</span> bài người này đã nộp sẽ bị xoá theo.
+            </strong>{" "}
+            File trên Google Drive của họ không bị ảnh hưởng.
+          </p>
+        ) : (
+          <p>Người này chưa nộp bài nào.</p>
+        )}
+        <p className="text-xs text-zinc-400">Nếu mã mời bị lộ, hãy “Đổi mã mời” để họ không vào lại được.</p>
+      </ConfirmDialog>
     </section>
   );
 }

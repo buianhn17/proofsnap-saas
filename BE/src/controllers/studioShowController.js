@@ -11,6 +11,7 @@ const {
   validateReview,
   validateMemberRole,
   SUBMIT_TYPES_BY_MEMBER_ROLE,
+  SHOW_STATUSES,
 } = require("../services/studioShowRules");
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -309,6 +310,65 @@ async function review(req, res, next) {
   }
 }
 
+/** Tải show và bắt buộc người gọi là chủ Studio (404 nếu không liên quan, 403 nếu chỉ là thành viên). */
+async function loadOwnedShow(req, action) {
+  if (!UUID_PATTERN.test(req.params.showId)) throw showNotFound();
+  const show = await studioShowModel.findShowForUser(req.params.showId, getUserId(req));
+  if (!show) throw showNotFound();
+  if (!show.is_owner) throw notStudioOwner(action);
+  return show;
+}
+
+async function updateStatus(req, res, next) {
+  try {
+    const status = (req.body || {}).status;
+    if (!SHOW_STATUSES.includes(status)) {
+      throw httpError(400, "INVALID_SHOW_STATUS", "status phải là 'open', 'completed' hoặc 'archived'");
+    }
+    const show = await loadOwnedShow(req, "đổi trạng thái show");
+    await studioShowModel.updateShowStatus(show.id, getUserId(req), status);
+    const updated = await studioShowModel.findShowForUser(show.id, getUserId(req));
+    res.json({ show: toShow(updated) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function rotateInvite(req, res, next) {
+  try {
+    const show = await loadOwnedShow(req, "đổi mã mời");
+    const prefix = buildInviteCodePrefix(show.school_name, show.class_name);
+    for (let attempt = 0; attempt < INVITE_CODE_ATTEMPTS; attempt++) {
+      const candidate = generateInviteCode(prefix, attempt);
+      if (candidate === show.invite_code) continue;
+      try {
+        const inviteCode = await studioShowModel.updateInviteCode(show.id, getUserId(req), candidate);
+        return res.json({ invite_code: inviteCode });
+      } catch (error) {
+        const isCodeCollision = error.code === "23505" && error.constraint === "studio_shows_invite_code_key";
+        if (!isCodeCollision) throw error;
+      }
+    }
+    throw httpError(503, "INVITE_CODE_EXHAUSTED", "Không sinh được mã mời, vui lòng thử lại");
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function removeMember(req, res, next) {
+  try {
+    const show = await loadOwnedShow(req, "mời thành viên ra khỏi show");
+    if (!UUID_PATTERN.test(req.params.memberId)) {
+      throw httpError(404, "MEMBER_NOT_FOUND", "Không tìm thấy thành viên");
+    }
+    const removed = await studioShowModel.removeMember(show.id, req.params.memberId);
+    if (!removed) throw httpError(404, "MEMBER_NOT_FOUND", "Không tìm thấy thành viên");
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function remove(req, res, next) {
   try {
     const userId = getUserId(req);
@@ -323,4 +383,4 @@ async function remove(req, res, next) {
   }
 }
 
-module.exports = { create, list, getOne, join, submit, review, remove };
+module.exports = { create, list, getOne, join, submit, review, remove, updateStatus, rotateInvite, removeMember };

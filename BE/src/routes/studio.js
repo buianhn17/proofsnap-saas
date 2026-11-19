@@ -150,6 +150,34 @@ router.post("/shows/join", studioShowController.join);
  *         description: Chưa đăng nhập
  *       404:
  *         description: Không có show hoặc chưa tham gia (SHOW_NOT_FOUND)
+ *   patch:
+ *     summary: Đổi trạng thái show — chỉ chủ Studio
+ *     description: |
+ *       open: đang nhận bàn giao · completed: đã chốt file gốc (không nhận thợ mới, vẫn nhận Editor + ảnh hậu kỳ)
+ *       · archived: lưu trữ, không nhận gì thêm.
+ *     tags: [Studio Shows]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/ShowId'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status: { type: string, enum: [open, completed, archived] }
+ *     responses:
+ *       200:
+ *         description: Show sau khi đổi
+ *       400:
+ *         description: Trạng thái không hợp lệ (INVALID_SHOW_STATUS)
+ *       403:
+ *         description: Không phải chủ Studio (STUDIO_OWNER_ONLY)
+ *       404:
+ *         description: Không có show hoặc chưa tham gia (SHOW_NOT_FOUND)
  *   delete:
  *     summary: Xoá show (kèm toàn bộ thành viên và bài nộp) — chỉ chủ Studio
  *     description: Không đụng tới file trên Google Drive của thợ/editor.
@@ -166,7 +194,57 @@ router.post("/shows/join", studioShowController.join);
  *       404:
  *         description: Không có show hoặc chưa tham gia (SHOW_NOT_FOUND)
  */
-router.route("/shows/:showId").get(studioShowController.getOne).delete(studioShowController.remove);
+router
+  .route("/shows/:showId")
+  .get(studioShowController.getOne)
+  .patch(studioShowController.updateStatus)
+  .delete(studioShowController.remove);
+
+/**
+ * @swagger
+ * /api/studio/shows/{showId}/rotate-invite:
+ *   post:
+ *     summary: Đổi mã mời mới (mã cũ hết hiệu lực) — chỉ chủ Studio
+ *     description: Dùng khi mã bị lộ / có người lạ vào. Thành viên đã tham gia vẫn giữ nguyên.
+ *     tags: [Studio Shows]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/ShowId'
+ *     responses:
+ *       200:
+ *         description: "Mã mới, VD { invite_code: KL12A5-41 }"
+ *       403:
+ *         description: Không phải chủ Studio (STUDIO_OWNER_ONLY)
+ *       404:
+ *         description: Không có show hoặc chưa tham gia (SHOW_NOT_FOUND)
+ */
+router.post("/shows/:showId/rotate-invite", studioShowController.rotateInvite);
+
+/**
+ * @swagger
+ * /api/studio/shows/{showId}/members/{memberId}:
+ *   delete:
+ *     summary: Mời 1 thành viên ra khỏi show (bài nộp của người đó bị xoá theo) — chỉ chủ Studio
+ *     tags: [Studio Shows]
+ *     security:
+ *       - cookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/ShowId'
+ *       - name: memberId
+ *         in: path
+ *         required: true
+ *         description: show_members.id
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       204:
+ *         description: Đã mời ra
+ *       403:
+ *         description: Không phải chủ Studio (STUDIO_OWNER_ONLY)
+ *       404:
+ *         description: Không có show / thành viên (SHOW_NOT_FOUND, MEMBER_NOT_FOUND)
+ */
+router.delete("/shows/:showId/members/:memberId", studioShowController.removeMember);
 
 /**
  * @swagger

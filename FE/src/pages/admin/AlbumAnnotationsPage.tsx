@@ -9,10 +9,12 @@
 // chi tiết yêu cầu: đánh dấu hoàn tất từng yêu cầu, hoàn tất cả loạt, và ghi chú nội
 // bộ/phản hồi khách theo ảnh (xem migration 005_annotation_status_and_notes.sql).
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
 import { SendIcon } from "../../components/Icons";
+import Breadcrumbs from "../../components/ui/Breadcrumbs";
+import PageSpinner from "../../components/ui/PageSpinner";
 import type { Album } from "../../lib/types";
 
 interface AnnotationPoint {
@@ -221,27 +223,24 @@ export default function AlbumAnnotationsPage() {
 
   if (!exportData || !album) {
     return (
-      <div className="flex items-center justify-center p-12 text-sm text-zinc-400">
-        <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
-        Đang tải yêu cầu chỉnh sửa...
-      </div>
+      <PageSpinner label="Đang tải yêu cầu chỉnh sửa…" fullHeight />
     );
   }
 
   return (
-    <div className="-m-6 sm:-m-8 lg:-m-10 flex h-screen flex-col bg-[#090a0f] text-slate-100">
+    <div className="-m-6 sm:-m-8 lg:-m-10 flex h-[calc(100dvh-3.5rem)] flex-col bg-[#090a0f] lg:h-dvh text-zinc-100">
       {/* Top Header */}
       <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-950/80 px-6 backdrop-blur-md">
-        <div className="flex items-center gap-2 text-xs text-zinc-400 font-mono">
-          <Link to="/admin/albums" className="hover:text-white transition-colors">
-            Kho Album
-          </Link>
-          <span className="text-zinc-600">/</span>
-          <Link to={`/admin/albums/${albumId}`} className="hover:text-white transition-colors">
-            {album.name}
-          </Link>
-          <span className="text-zinc-600">/</span>
-          <span className="text-indigo-400 font-semibold">Yêu cầu chỉnh sửa</span>
+        <div className="min-w-0">
+          <title>{`Yêu cầu chỉnh sửa — ${album.name} · LensProof`}</title>
+          <h1 className="sr-only">Yêu cầu chỉnh sửa — {album.name}</h1>
+          <Breadcrumbs
+            items={[
+              { label: "Bộ sưu tập", to: "/admin/albums" },
+              { label: album.name, to: `/admin/albums/${albumId}` },
+              { label: "Yêu cầu chỉnh sửa" },
+            ]}
+          />
         </div>
         <div className="flex items-center gap-2.5">
           <button

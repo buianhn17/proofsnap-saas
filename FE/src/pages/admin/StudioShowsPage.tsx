@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
+import Breadcrumbs from "../../components/ui/Breadcrumbs";
 import { useAuth } from "../../contexts/AuthContext";
 import {
   OVERNIGHT_BEFORE,
@@ -107,11 +108,8 @@ export default function StudioShowsPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-2 font-mono text-xs font-medium text-zinc-400">
-            <span>Workspace</span>
-            <span className="text-zinc-600">/</span>
-            <span className="font-semibold text-indigo-400">Bàn giao Ekip</span>
-          </div>
+          <Breadcrumbs items={[{ label: "Quản trị" }, { label: "Bàn giao Ekip" }]} />
+          <title>{"Bàn giao Ekip · LensProof"}</title>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">Bàn giao Show Kỷ Yếu</h1>
           <p className="mt-1 text-xs text-zinc-400">
             Mỗi lớp là một show. Ekip vào bằng mã mời, tự lọc ảnh rác trên máy rồi nộp link Drive trong 24 giờ.

@@ -16,6 +16,7 @@ import {
   type ShowDetailResponse,
   type ShowSubmission,
 } from "../../lib/studioShows";
+import Breadcrumbs from "../../components/ui/Breadcrumbs";
 import { dialogInputClass, dialogLabelClass, primaryButtonClass, secondaryButtonClass } from "../../components/Dialog";
 import { CopyButton, DeadlineCountdown, SubmissionStatusBadge } from "../../components/studio/StudioBits";
 import PhotoCullStep from "../../components/studio/PhotoCullStep";
@@ -23,7 +24,6 @@ import VideoScanStep from "../../components/studio/VideoScanStep";
 import type { StepOutcome } from "../../components/studio/stepOutcome";
 import {
   AlertTriangleIcon,
-  ArrowLeftIcon,
   CameraIcon,
   CheckIcon,
   ExternalLinkIcon,
@@ -113,10 +113,11 @@ export default function CrewSubmitPage() {
     <div className="flex flex-col gap-8">
       {/* Header */}
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink show={show} />
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
             <p className="font-mono text-xs text-zinc-400">Studio: {show.studio_name}</p>
+            <title>{`Nộp file ${show.class_name} · LensProof`}</title>
             <h1 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">Kiểm duyệt & Nộp file</h1>
             <p className="mt-1 text-sm text-zinc-300">
               {show.class_name} <span className="text-zinc-600">—</span> {show.school_name}
@@ -275,11 +276,15 @@ export default function CrewSubmitPage() {
   );
 }
 
-function BackLink() {
+function BackLink({ show }: { show?: { id: string; class_name: string } }) {
   return (
-    <Link to="/admin/shows?tab=crew" className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-zinc-400 transition-colors hover:text-white">
-      <ArrowLeftIcon size={14} /> Nộp file về Studio
-    </Link>
+    <Breadcrumbs
+      items={[
+        { label: "Bàn giao Ekip", to: "/admin/shows?tab=crew" },
+        ...(show ? [{ label: show.class_name, to: `/admin/shows/${show.id}` }] : []),
+        { label: "Nộp file" },
+      ]}
+    />
   );
 }
 
@@ -476,7 +481,7 @@ function SubmitForm({
           <CopyButton value={folderName} label="Copy 1 chạm" copiedLabel="Đã copy tên" size="md" />
         </div>
         <ol className="mt-4 list-decimal space-y-1 pl-5 text-xs text-zinc-400">
-          <li>Upload thư mục đã lọc lên Google Drive cá nhân, đổi tên folder đúng như trên.</li>
+          <li>Tải thư mục đã lọc lên Google Drive cá nhân, đổi tên folder đúng như trên.</li>
           <li>Chia sẻ folder ở chế độ “Bất kỳ ai có đường liên kết”.</li>
           <li>Dán link folder vào ô bên dưới.</li>
         </ol>

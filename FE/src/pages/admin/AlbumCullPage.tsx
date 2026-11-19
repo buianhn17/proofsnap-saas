@@ -30,6 +30,8 @@ import type {
   CullingTestProgress,
 } from "../../lib/culling/cullingPipeline";
 import { runCullingTestInWorker } from "../../lib/culling/cullingWorkerClient";
+import Breadcrumbs from "../../components/ui/Breadcrumbs";
+import ConfirmDialog from "../../components/ui/ConfirmDialog";
 import { classifyCullingFlag, type CullingFlag } from "../../lib/culling/cullingFlag";
 import { groupScenesAndBursts } from "../../lib/culling/sceneGrouping";
 import {
@@ -129,7 +131,7 @@ const FLAG_LABEL: Record<CullingFlag, string> = {
 const FLAG_DOT: Record<CullingFlag, string> = {
   green: "bg-emerald-500",
   yellow: "bg-amber-500",
-  red: "bg-red-500",
+  red: "bg-rose-500",
 };
 
 const FLAG_OVERLAY: Record<CullingFlag, { bg: string; border: string; text: string; label: string }> = {
@@ -141,14 +143,14 @@ const FLAG_OVERLAY: Record<CullingFlag, { bg: string; border: string; text: stri
 const EYE_RING: Record<EyeStatus, string> = {
   open: "ring-emerald-500",
   squint: "ring-amber-500",
-  closed: "ring-red-500",
-  no_face: "ring-neutral-600",
+  closed: "ring-rose-500",
+  no_face: "ring-zinc-600",
 };
 
 const DECISION_BADGE: Record<Decision, string> = {
   green: "bg-emerald-600 text-white",
   yellow: "bg-amber-500 text-white",
-  red: "bg-red-600 text-white",
+  red: "bg-rose-600 text-white",
 };
 
 const DECISION_LABEL: Record<Decision, string> = {
@@ -160,7 +162,7 @@ const DECISION_LABEL: Record<Decision, string> = {
 const DECISION_DOT: Record<Decision, string> = {
   green: "bg-emerald-500",
   yellow: "bg-amber-500",
-  red: "bg-red-500",
+  red: "bg-rose-500",
 };
 
 export default function AlbumCullPage() {
@@ -354,7 +356,9 @@ export default function AlbumCullPage() {
     }
     return { keptPairs: kept, rejectedPairs: rejected };
   }, [items, decisions, jpgPathToRaw]);
+  const rejectedFileCount = rejectedPairs.reduce((sum, p) => sum + 1 + (p.raw ? 1 : 0), 0);
 
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [localAction, setLocalAction] = useState<LocalActionState>({
     kind: "idle",
   });
@@ -396,15 +400,6 @@ export default function AlbumCullPage() {
 
   async function handleDeleteRejected() {
     if (!scanResult || rejectedPairs.length === 0) return;
-    const fileCount = rejectedPairs.reduce(
-      (sum, p) => sum + 1 + (p.raw ? 1 : 0),
-      0
-    );
-    const confirmed = window.confirm(
-      `Xoá vĩnh viễn ${fileCount} file (RAW+JPG) đã bị loại khỏi thư mục gốc trên máy?\n\n` +
-        `Hành động này KHÔNG THỂ HOÀN TÁC.`
-    );
-    if (!confirmed) return;
 
     setLocalAction({
       kind: "running",
@@ -1266,21 +1261,19 @@ export default function AlbumCullPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="flex items-end justify-between border-b border-white/10 pb-[25px]">
+      <div className="flex flex-col gap-3 border-b border-white/10 pb-6">
+        <Breadcrumbs
+          items={[
+            { label: "Bộ sưu tập", to: "/admin/albums" },
+            { label: album?.name ?? "Album", to: `/admin/albums/${albumId}` },
+            { label: "Chế độ phân cảnh" },
+          ]}
+        />
         <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-zinc-100">
-            Chế độ phân cảnh
-          </h1>
-          <p className="mt-1 text-base text-zinc-400">
-            {album ? `${album.name} — ` : ""}Duyệt và gộp ảnh theo thời gian thực.
-          </p>
+          <title>{`Chế độ phân cảnh${album ? ` — ${album.name}` : ""} · LensProof`}</title>
+          <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">Chế độ phân cảnh</h1>
+          <p className="mt-1 text-xs text-zinc-400">Lọc ảnh gốc trên máy, gom theo phân cảnh trước khi tải lên album.</p>
         </div>
-        <Link
-          to={`/admin/albums/${albumId}`}
-          className="text-sm text-zinc-400 hover:text-zinc-100"
-        >
-          ← Quay lại album
-        </Link>
       </div>
 
       {!scanResult && (
@@ -1289,12 +1282,12 @@ export default function AlbumCullPage() {
             type="button"
             onClick={handlePickFolder}
             disabled={isScanning}
-            className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-50"
+            className="rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 border border-indigo-400/30 px-4 py-2 text-sm font-semibold text-white hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-50 shadow-lg shadow-indigo-500/25 transition"
           >
             {isScanning ? "Đang quét…" : "Chọn thư mục ảnh gốc trên máy"}
           </button>
           {scanError && (
-            <p className="mt-2 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
+            <p className="mt-2 rounded-md bg-rose-950/50 px-3 py-2 text-sm text-rose-300">
               {scanError}
             </p>
           )}
@@ -1311,7 +1304,7 @@ export default function AlbumCullPage() {
           <button
             type="button"
             onClick={handleAnalyze}
-            className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400"
+            className="rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 border border-indigo-400/30 px-4 py-2 text-sm font-semibold text-white hover:from-indigo-400 hover:to-indigo-500 shadow-lg shadow-indigo-500/25 transition"
           >
             Bắt đầu phân tích
           </button>
@@ -1326,7 +1319,7 @@ export default function AlbumCullPage() {
       )}
 
       {runError && (
-        <p className="mt-2 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
+        <p className="mt-2 rounded-md bg-rose-950/50 px-3 py-2 text-sm text-rose-300">
           {runError}
         </p>
       )}
@@ -1345,7 +1338,7 @@ export default function AlbumCullPage() {
               <button
                 type="button"
                 onClick={handleStopAnalyze}
-                className="rounded-lg border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-300 hover:bg-red-950/50"
+                className="rounded-lg border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-300 hover:bg-rose-950/50"
               >
                 Dừng
               </button>
@@ -1395,7 +1388,7 @@ export default function AlbumCullPage() {
                   { value: "all", label: "Tất cả", count: counts.total, dot: null },
                   { value: "green", label: "Giữ", count: counts.keep, dot: "bg-emerald-400" },
                   { value: "yellow", label: "Xem lại", count: counts.review, dot: "bg-amber-400" },
-                  { value: "red", label: "Loại", count: counts.reject, dot: "bg-red-500" },
+                  { value: "red", label: "Loại", count: counts.reject, dot: "bg-rose-500" },
                 ] as const
               ).map((option) => (
                 <button
@@ -1485,7 +1478,7 @@ export default function AlbumCullPage() {
                         <button
                           type="button"
                           onClick={() => rejectRestOfBurst(row.burst)}
-                          className="font-mono tracking-wider text-rose-300 hover:text-red-300"
+                          className="font-mono tracking-wider text-rose-300 hover:text-rose-300"
                         >
                           Loại {row.burst.items.length - 1} ảnh còn lại (giữ
                           đại diện ★)
@@ -1520,20 +1513,35 @@ export default function AlbumCullPage() {
               </button>
               <button
                 type="button"
-                onClick={handleDeleteRejected}
+                onClick={() => setConfirmDeleteOpen(true)}
                 disabled={
                   rejectedPairs.length === 0 || localAction.kind === "running"
                 }
-                className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-sm font-medium text-rose-300 hover:bg-red-950/50 disabled:opacity-50"
+                className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-sm font-medium text-rose-300 hover:bg-rose-950/50 disabled:opacity-50"
               >
-                Xoá {rejectedPairs.length} cặp ảnh "loại" khỏi thư mục gốc
+                Xoá {rejectedPairs.length} cặp ảnh “loại” khỏi thư mục gốc
               </button>
             </div>
+            <ConfirmDialog
+              open={confirmDeleteOpen}
+              onClose={() => setConfirmDeleteOpen(false)}
+              tone="danger"
+              title={`Xoá vĩnh viễn ${rejectedFileCount} file khỏi máy?`}
+              description="Không vào thùng rác, không hoàn tác"
+              confirmLabel="Xoá vĩnh viễn"
+              onConfirm={() => {
+                void handleDeleteRejected();
+              }}
+            >
+              <p>
+                Các cặp RAW + JPG đã đánh dấu “loại” sẽ bị xoá khỏi thư mục gốc trên máy. Trình duyệt sẽ xin quyền ghi vào thư mục trước khi xoá.
+              </p>
+            </ConfirmDialog>
 
             {localAction.kind === "running" && (
               <p className="mt-3 text-sm text-zinc-400">
                 {localAction.action === "copy" ? "Đang sao chép" : "Đang xoá"}{" "}
-                {localAction.done}/{localAction.total} file...
+                {localAction.done}/{localAction.total} file…
               </p>
             )}
             {localAction.kind === "done" && (
@@ -1542,7 +1550,7 @@ export default function AlbumCullPage() {
               </p>
             )}
             {localAction.kind === "error" && (
-              <p className="mt-3 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
+              <p className="mt-3 rounded-md bg-rose-950/50 px-3 py-2 text-sm text-rose-300">
                 {localAction.message}
               </p>
             )}
@@ -1557,7 +1565,7 @@ export default function AlbumCullPage() {
               type="button"
               onClick={handleContinueToUpload}
               disabled={counts.keep === 0}
-              className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-50"
+              className="rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 border border-indigo-400/30 px-4 py-2 text-sm font-semibold text-white hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-50 shadow-lg shadow-indigo-500/25 transition"
             >
               Tiếp tục upload {counts.keep} ảnh đã giữ
             </button>
@@ -1567,7 +1575,7 @@ export default function AlbumCullPage() {
 
       {currentItem &&
         createPortal(
-          <div className="fixed inset-0 z-[100] flex flex-col bg-[#090a0f] text-slate-100 overflow-hidden">
+          <div className="fixed inset-0 z-[100] flex flex-col bg-[#090a0f] text-zinc-100 overflow-hidden">
             {/* Top Header */}
             <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-950/90 px-6 backdrop-blur-md">
               <div className="flex items-center gap-3">
@@ -1797,7 +1805,7 @@ export default function AlbumCullPage() {
                         )}
                         {face.isMainSubject &&
                           analysisByPath.get(currentItem.file.relativePath)?.faces[index]?.is_blinking && (
-                            <p className="mt-1 text-[11px] font-semibold text-red-400">Được tính là nhắm mắt</p>
+                            <p className="mt-1 text-[11px] font-semibold text-rose-400">Được tính là nhắm mắt</p>
                           )}
                       </div>
                     ))}

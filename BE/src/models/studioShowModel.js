@@ -278,6 +278,28 @@ async function findSubmissionWithAccess(submissionId, userId) {
   return row && (row.is_owner || row.is_member) ? row : null;
 }
 
+async function updateShowStatus(showId, studioUserId, status) {
+  const result = await pool.query(
+    "UPDATE studio_shows SET status = $3 WHERE id = $1 AND studio_user_id = $2",
+    [showId, studioUserId, status]
+  );
+  return result.rowCount === 1;
+}
+
+async function updateInviteCode(showId, studioUserId, inviteCode) {
+  const result = await pool.query(
+    "UPDATE studio_shows SET invite_code = $3 WHERE id = $1 AND studio_user_id = $2 RETURNING invite_code",
+    [showId, studioUserId, inviteCode]
+  );
+  return result.rows[0]?.invite_code ?? null;
+}
+
+/** Xoá 1 thành viên khỏi show — bài nộp của họ bị xoá theo (FK cascade). Trả về true nếu đã xoá. */
+async function removeMember(showId, memberId) {
+  const result = await pool.query("DELETE FROM show_members WHERE id = $1 AND show_id = $2", [memberId, showId]);
+  return result.rowCount === 1;
+}
+
 /** Chỉ chủ Studio mới xoá được — trả về true nếu đã xoá. */
 async function deleteShowForStudio(showId, studioUserId) {
   const result = await pool.query(
@@ -305,6 +327,9 @@ module.exports = {
   findShowByInviteCode,
   upsertMember,
   deleteShowForStudio,
+  updateShowStatus,
+  updateInviteCode,
+  removeMember,
   listSubmissions,
   listSubmissionsForCrew,
   listMembers,

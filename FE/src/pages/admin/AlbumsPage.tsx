@@ -4,6 +4,8 @@ import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
 import { getPresetLabel } from "../../lib/compressionPresets";
 import type { Album } from "../../lib/types";
+import { deadlineDays, getAlbumStatusBadge } from "../../lib/albumStatus";
+import Breadcrumbs from "../../components/ui/Breadcrumbs";
 
 type FilterKey = "all" | "open" | "archived";
 type ViewMode = "grid" | "list";
@@ -20,41 +22,6 @@ function formatDate(value: string) {
     month: "2-digit",
     year: "numeric",
   });
-}
-
-function deadlineDays(deadline: string | null) {
-  if (!deadline) return null;
-  return Math.ceil((new Date(deadline).getTime() - Date.now()) / 86_400_000);
-}
-
-function getStatusBadge(album: Album) {
-  if (album.status === "archived") {
-    return {
-      label: "LƯU TRỮ",
-      className: "border-white/10 bg-zinc-800/80 text-zinc-300",
-      dot: "bg-zinc-400",
-    };
-  }
-  if (album.is_locked) {
-    return {
-      label: "ĐÃ KHÓA",
-      className: "border-rose-500/30 bg-rose-950/60 text-rose-300",
-      dot: "bg-rose-400",
-    };
-  }
-  const days = deadlineDays(album.selection_deadline);
-  if (days !== null && days <= 3) {
-    return {
-      label: days <= 0 ? "HẾT HẠN" : "SẮP HẾT HẠN",
-      className: "border-amber-500/30 bg-amber-950/60 text-amber-300",
-      dot: "bg-amber-400",
-    };
-  }
-  return {
-    label: "ĐANG MỞ",
-    className: "border-emerald-500/30 bg-emerald-950/60 text-emerald-300",
-    dot: "bg-emerald-400",
-  };
 }
 
 function formatDeadline(deadline: string | null) {
@@ -109,13 +76,10 @@ export default function AlbumsPage() {
       {/* Top Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-xs font-medium text-zinc-400 font-mono">
-            <span>Workspace</span>
-            <span className="text-zinc-600">/</span>
-            <span className="text-indigo-400 font-semibold">Kho Album</span>
-          </div>
+          <Breadcrumbs items={[{ label: "Quản trị" }, { label: "Bộ sưu tập" }]} />
+          <title>{"Bộ sưu tập · LensProof"}</title>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">
-            Danh sách bộ sưu tập
+            Bộ sưu tập
           </h1>
           <p className="mt-1 text-xs text-zinc-400">
             Quản lý các bộ sưu tập ảnh cưới, sự kiện và tiến độ chọn ảnh của khách hàng.
@@ -358,7 +322,7 @@ export default function AlbumsPage() {
           {albums.length === 0 && (
             <Link
               to="/admin/albums/new"
-              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:bg-indigo-400"
+              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 border border-indigo-400/30 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:from-indigo-400 hover:to-indigo-500"
             >
               + Tạo album đầu tiên
             </Link>
@@ -370,7 +334,7 @@ export default function AlbumsPage() {
       {albums && filteredAlbums.length > 0 && viewMode === "grid" && (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredAlbums.map((album) => {
-            const badge = getStatusBadge(album);
+            const badge = getAlbumStatusBadge(album);
             const deadlineInfo = formatDeadline(album.selection_deadline);
             const isArchived = album.status === "archived";
 
@@ -507,7 +471,7 @@ export default function AlbumsPage() {
             </thead>
             <tbody className="divide-y divide-white/5">
               {filteredAlbums.map((album) => {
-                const badge = getStatusBadge(album);
+                const badge = getAlbumStatusBadge(album);
                 const deadlineInfo = formatDeadline(album.selection_deadline);
                 return (
                   <tr key={album.id} className="group transition-colors hover:bg-white/[0.03]">

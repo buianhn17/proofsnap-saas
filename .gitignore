@@ -3,3 +3,6 @@
 npm-debug.log
 *.log
 .DS_Store
+
+# Cache Python (cong cu tra cuu cua skill)
+__pycache__/

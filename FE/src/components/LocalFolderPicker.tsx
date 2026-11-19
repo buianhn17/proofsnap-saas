@@ -58,7 +58,7 @@ export default function LocalFolderPicker({
         type="button"
         onClick={handlePick}
         disabled={isScanning}
-        className="rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:bg-indigo-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+        className="rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 border border-indigo-400/30 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:from-indigo-400 hover:to-indigo-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isScanning ? "Đang quét thư mục…" : "Chọn thư mục ảnh gốc trên máy"}
       </button>

@@ -332,7 +332,7 @@ function PhotoUploadPanel(
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <span className="text-zinc-100">
               {isActive ? "Đang tải ảnh lên Drive" : "Đã tải xong"} · {doneCount}/{total} ảnh
-              {failed.length > 0 && <span className="text-red-400"> · {failed.length} lỗi</span>}
+              {failed.length > 0 && <span className="text-rose-400"> · {failed.length} lỗi</span>}
             </span>
             <div className="flex items-center gap-2">
               {failed.length > 0 && (
@@ -389,7 +389,7 @@ function PhotoUploadPanel(
                       <div className="h-full rounded-full bg-indigo-500" style={{ width: `${entry.progress}%` }} />
                     </div>
                   )}
-                  {entry.error && <p className="mt-1 text-[11px] text-red-400">{entry.error}</p>}
+                  {entry.error && <p className="mt-1 text-[11px] text-rose-400">{entry.error}</p>}
                 </li>
               ))}
             </ul>

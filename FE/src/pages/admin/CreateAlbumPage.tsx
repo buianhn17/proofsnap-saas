@@ -6,6 +6,7 @@ import { COMPRESSION_PRESETS } from "../../lib/compressionPresets";
 import { PIN_PATTERN } from "../../lib/validation";
 import type { Album } from "../../lib/types";
 import { useEscapeKey } from "../../lib/useEscapeKey";
+import AlbumsPage from "./AlbumsPage";
 
 const inputClass =
   "w-full rounded-xl border border-white/10 bg-zinc-900/80 px-4 py-3 text-sm text-white placeholder:text-zinc-500 transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 [color-scheme:dark]";
@@ -62,6 +63,11 @@ export default function CreateAlbumPage() {
   }
 
   return (
+    <>
+    {/* Danh sách album phía sau modal — trước đây modal nằm trên nền trống */}
+    <div aria-hidden="true" inert>
+      <AlbumsPage />
+    </div>
     <div role="dialog" aria-modal="true" aria-label="Tạo album mới" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in-up">
       <div className="flex max-h-[90vh] w-full max-w-[620px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/80 backdrop-blur-2xl animate-scale-in">
         {/* Modal Header */}
@@ -256,5 +262,6 @@ export default function CreateAlbumPage() {
         </form>
       </div>
     </div>
+    </>
   );
 }

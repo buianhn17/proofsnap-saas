@@ -27,7 +27,7 @@ export default function LoginPage() {
   }, [isLoading, photographer, navigate]);
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#090a0f] text-slate-100 antialiased selection:bg-indigo-500/30">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#090a0f] text-zinc-100 antialiased selection:bg-indigo-500/30">
       {/* Background with Ambient Glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <img
@@ -45,7 +45,7 @@ export default function LoginPage() {
         />
         {/* Ambient floating orbs */}
         <div className="absolute -top-32 left-1/4 h-[450px] w-[450px] rounded-full bg-indigo-600/15 blur-[140px] animate-ambient-pulse" />
-        <div className="absolute -bottom-32 right-1/4 h-[400px] w-[400px] rounded-full bg-purple-600/10 blur-[130px] animate-ambient-pulse" />
+        <div className="absolute -bottom-32 right-1/4 h-[400px] w-[400px] rounded-full bg-violet-600/10 blur-[130px] animate-ambient-pulse" />
       </div>
 
       {/* Login Card */}
@@ -58,6 +58,8 @@ export default function LoginPage() {
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-zinc-900 shadow-inner">
             <img alt="LensProof" className="h-7 w-7" src={logoIcon} />
           </div>
+
+          <title>{"Đăng nhập · LensProof Studio"}</title>
 
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
             LensProof

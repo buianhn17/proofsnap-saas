@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../lib/api";
 import { STUDIO_SHOWS_CHANGED_EVENT, type StudioShow } from "../lib/studioShows";
+import { useEscapeKey } from "../lib/useEscapeKey";
 
 interface NavItem {
   to: string;
@@ -112,10 +113,50 @@ function usePendingReviewCount() {
   return count;
 }
 
+type DriveState = "checking" | "ready" | "not_setup" | "error";
+
+// Trạng thái Google Drive thật của photographer (thay cho nhãn "Live" cố định trước đây).
+function useDriveStatus(): DriveState {
+  const [state, setState] = useState<DriveState>("checking");
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ connected: boolean; rootFolder: { trashed?: boolean } | null }>("/api/drive/status")
+      .then(({ data }) => {
+        if (cancelled) return;
+        setState(!data.connected ? "error" : data.rootFolder && !data.rootFolder.trashed ? "ready" : "not_setup");
+      })
+      .catch(() => !cancelled && setState("error"));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return state;
+}
+
+const DRIVE_META: Record<DriveState, { label: string; hint: string; dot: string; ping: boolean }> = {
+  checking: { label: "Đang kiểm tra Drive…", hint: "Kết nối Google Drive của bạn", dot: "bg-zinc-500", ping: false },
+  ready: { label: "Google Drive đã kết nối", hint: "Sẵn sàng lưu ảnh vào Drive của bạn", dot: "bg-emerald-500", ping: true },
+  not_setup: { label: "Chưa tạo thư mục Drive", hint: "Tự tạo khi bạn tạo album đầu tiên", dot: "bg-amber-400", ping: false },
+  error: { label: "Mất kết nối Drive", hint: "Đăng xuất rồi đăng nhập Google lại để cấp quyền", dot: "bg-rose-500", ping: false },
+};
+
 export default function AdminLayout() {
   const { photographer, logout } = useAuth();
   const navigate = useNavigate();
   const pendingReviews = usePendingReviewCount();
+  const driveState = useDriveStatus();
+  const drive = DRIVE_META[driveState];
+  const { pathname } = useLocation();
+
+  // Sidebar dạng ngăn kéo trên màn < lg: tự đóng khi chuyển trang hoặc bấm Esc
+  const [navOpen, setNavOpen] = useState(false);
+  const [lastPath, setLastPath] = useState(pathname);
+  if (pathname !== lastPath) {
+    setLastPath(pathname);
+    setNavOpen(false);
+  }
+  useEscapeKey(() => setNavOpen(false), navOpen);
 
   async function handleLogout() {
     await logout();
@@ -126,9 +167,38 @@ export default function AdminLayout() {
   const initial = (displayName.charAt(0) || "P").toUpperCase();
 
   return (
-    <div className="flex min-h-screen bg-[#090a0f] text-slate-100 antialiased selection:bg-indigo-500/30">
+    <div className="flex min-h-dvh flex-col bg-[#090a0f] text-zinc-100 antialiased selection:bg-indigo-500/30 lg:flex-row">
+      {/* Thanh trên cùng cho màn hình nhỏ */}
+      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-zinc-950/85 px-4 pt-[env(safe-area-inset-top)] backdrop-blur-xl lg:hidden">
+        <button
+          type="button"
+          onClick={() => setNavOpen(true)}
+          aria-label="Mở menu"
+          aria-expanded={navOpen}
+          aria-controls="admin-sidebar"
+          className="relative flex size-10 items-center justify-center rounded-xl text-zinc-300 transition-colors hover:bg-white/10 hover:text-white"
+        >
+          <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          {pendingReviews > 0 && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-amber-400" aria-hidden="true" />}
+        </button>
+        <span className="text-base font-bold tracking-tight text-white" translate="no">LensProof</span>
+        <span className="size-10" aria-hidden="true" />
+      </header>
+
+      {navOpen && (
+        <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm animate-fade-in lg:hidden" onClick={() => setNavOpen(false)} aria-hidden="true" />
+      )}
+
       {/* Sidebar */}
-      <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col border-r border-white/10 bg-zinc-950/80 backdrop-blur-2xl p-5">
+      <aside
+        id="admin-sidebar"
+        aria-label="Menu quản trị"
+        className={`fixed inset-y-0 left-0 z-50 flex h-dvh w-72 shrink-0 flex-col overflow-y-auto border-r border-white/10 bg-zinc-950/95 p-5 pt-[max(1.25rem,env(safe-area-inset-top))] backdrop-blur-2xl transition-transform duration-300 lg:sticky lg:top-0 lg:z-auto lg:w-64 lg:translate-x-0 lg:bg-zinc-950/80 ${
+          navOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         {/* Brand Header */}
         <div className="mb-8 flex items-center gap-3 px-1">
           <div className="group relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-zinc-900 shadow-inner">
@@ -225,23 +295,21 @@ export default function AdminLayout() {
         </nav>
 
         {/* Studio Drive Status Pill */}
-        <div className="mb-4 rounded-xl border border-white/5 bg-zinc-900/40 p-3 backdrop-blur-sm">
+        <div role="status" className="mb-4 rounded-xl border border-white/5 bg-zinc-900/40 p-3 backdrop-blur-sm">
           <div className="flex items-center gap-2 text-xs">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="relative flex h-2 w-2" aria-hidden="true">
+              {drive.ping && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
+              <span className={`relative inline-flex h-2 w-2 rounded-full ${drive.dot}`} />
             </span>
-            <span className="font-medium text-zinc-200">Google Drive Live</span>
+            <span className="font-medium text-zinc-200">{drive.label}</span>
           </div>
-          <p className="mt-1 text-[11px] text-zinc-400 leading-tight">
-            Sẵn sàng đồng bộ & trích xuất ảnh
-          </p>
+          <p className="mt-1 text-[11px] leading-tight text-zinc-400">{drive.hint}</p>
         </div>
 
         {/* User Profile & Logout */}
         <div className="border-t border-white/10 pt-4">
           <div className="flex items-center gap-3 px-1 py-1">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-500/30 to-purple-500/20 border border-white/10 text-sm font-semibold text-white">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-500/30 to-violet-500/20 border border-white/10 text-sm font-semibold text-white">
               {initial}
             </div>
             <div className="min-w-0 flex-1">
@@ -257,7 +325,7 @@ export default function AdminLayout() {
           <button
             type="button"
             onClick={handleLogout}
-            className="mt-3 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-zinc-400 transition duration-200 hover:bg-red-500/10 hover:text-red-300 active:scale-[0.98]"
+            className="mt-3 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-zinc-400 transition duration-200 hover:bg-rose-500/10 hover:text-rose-300 active:scale-[0.98]"
           >
             <svg
               className="h-4 w-4 shrink-0 text-zinc-500"

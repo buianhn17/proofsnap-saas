@@ -463,6 +463,38 @@ test("closed shows reject new members and submissions", async () => {
   ctx.closedShowId = body.show.id;
 });
 
+test("studio owner changes status, rotates invite code and removes members", async () => {
+  const showUrl = `/api/studio/shows/${ctx.show.id}`;
+
+  const byEditor = await request(app).patch(showUrl).set("Cookie", users.editor.cookie).send({ status: "completed" });
+  assert.equal(byEditor.statusCode, 403);
+  const bad = await request(app).patch(showUrl).set("Cookie", users.studio.cookie).send({ status: "done" });
+  assert.equal(bad.body.error, "INVALID_SHOW_STATUS");
+  const completed = await request(app).patch(showUrl).set("Cookie", users.studio.cookie).send({ status: "completed" });
+  assert.equal(completed.statusCode, 200);
+  assert.equal(completed.body.show.status, "completed");
+  await request(app).patch(showUrl).set("Cookie", users.studio.cookie).send({ status: "open" });
+
+  const oldCode = ctx.show.invite_code;
+  const rotated = await as("studio").post(`${showUrl}/rotate-invite`);
+  assert.equal(rotated.statusCode, 200);
+  assert.notEqual(rotated.body.invite_code, oldCode);
+  const withOld = await as("outsider").post("/api/studio/shows/join", { invite_code: oldCode });
+  assert.equal(withOld.statusCode, 404);
+  const crewRotate = await as("photo").post(`${showUrl}/rotate-invite`);
+  assert.equal(crewRotate.statusCode, 403);
+  ctx.show.invite_code = rotated.body.invite_code;
+
+  const detail = await as("studio").get(showUrl);
+  const switcher = detail.body.members.find((m) => m.user_id === users.switcher.id);
+  const kickByCrew = await request(app).delete(`${showUrl}/members/${switcher.id}`).set("Cookie", users.photo.cookie);
+  assert.equal(kickByCrew.statusCode, 403);
+  const kicked = await request(app).delete(`${showUrl}/members/${switcher.id}`).set("Cookie", users.studio.cookie);
+  assert.equal(kicked.statusCode, 204);
+  const gone = await as("switcher").get(showUrl);
+  assert.equal(gone.statusCode, 404);
+});
+
 test("studio owner deletes a show with everything in it", async () => {
   const response = await request(app).delete(`/api/studio/shows/${ctx.closedShowId}`).set("Cookie", users.studio.cookie);
   assert.equal(response.statusCode, 204);
