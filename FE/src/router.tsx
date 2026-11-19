@@ -3,16 +3,13 @@ import AdminLayout from "./layouts/AdminLayout";
 import ClientLayout from "./layouts/ClientLayout";
 import RequireAuth from "./components/RequireAuth";
 import { AuthProvider } from "./contexts/AuthContext";
-import LoginPage from "./pages/admin/LoginPage";
-import AlbumsPage from "./pages/admin/AlbumsPage";
-import CreateAlbumPage from "./pages/admin/CreateAlbumPage";
-import AlbumDetailPage from "./pages/admin/AlbumDetailPage";
-import AlbumAnnotationsPage from "./pages/admin/AlbumAnnotationsPage";
-import AlbumAccessPage from "./pages/client/AlbumAccessPage";
-import AlbumGalleryPage from "./pages/client/AlbumGalleryPage";
-import FaceSearchPage from "./pages/client/FaceSearchPage";
 import { ClientAlbumProvider } from "./contexts/ClientAlbumContext";
 import DeadlineCountdownBar from "./components/DeadlineCountdownBar";
+
+// Mỗi trang là một chunk riêng: khách vào Client Portal không phải tải code Admin và ngược lại.
+const page = (load: () => Promise<{ default: React.ComponentType }>) => async () => ({
+  Component: (await load()).default,
+});
 
 function AdminAuthScope() {
   return (
@@ -49,7 +46,7 @@ export const router = createBrowserRouter([
     path: "/admin",
     element: <AdminAuthScope />,
     children: [
-      { path: "login", element: <LoginPage /> },
+      { path: "login", lazy: page(() => import("./pages/admin/LoginPage")) },
       {
         element: <RequireAuth />,
         children: [
@@ -57,10 +54,14 @@ export const router = createBrowserRouter([
             element: <AdminLayout />,
             children: [
               { index: true, element: <Navigate to="albums" replace /> },
-              { path: "albums", element: <AlbumsPage /> },
-              { path: "albums/new", element: <CreateAlbumPage /> },
-              { path: "albums/:albumId", element: <AlbumDetailPage /> },
-              { path: "albums/:albumId/annotations", element: <AlbumAnnotationsPage /> },
+              { path: "albums", lazy: page(() => import("./pages/admin/AlbumsPage")) },
+              { path: "albums/new", lazy: page(() => import("./pages/admin/CreateAlbumPage")) },
+              { path: "albums/:albumId", lazy: page(() => import("./pages/admin/AlbumDetailPage")) },
+              { path: "albums/:albumId/annotations", lazy: page(() => import("./pages/admin/AlbumAnnotationsPage")) },
+              // Bàn giao Show Kỷ Yếu — chủ Studio tạo show, thợ ảnh/thợ quay nộp file
+              { path: "shows", lazy: page(() => import("./pages/admin/StudioShowsPage")) },
+              { path: "shows/:showId", lazy: page(() => import("./pages/admin/ShowDetailPage")) },
+              { path: "shows/:showId/submit", lazy: page(() => import("./pages/admin/CrewSubmitPage")) },
               // Bước 1.6 — bước duyệt/lọc ảnh (culling) tiền-upload. Lazy-load vì kéo theo
               // @mediapipe/tasks-vision qua culling worker, không nên tính vào bundle chính.
               {
@@ -79,12 +80,12 @@ export const router = createBrowserRouter([
     path: "/a/:albumId",
     element: <ClientLayout />,
     children: [
-      { index: true, element: <AlbumAccessPage /> },
+      { index: true, lazy: page(() => import("./pages/client/AlbumAccessPage")) },
       {
         element: <ClientAlbumScope />,
         children: [
-          { path: "gallery", element: <AlbumGalleryPage /> },
-          { path: "face-search", element: <FaceSearchPage /> },
+          { path: "gallery", lazy: page(() => import("./pages/client/AlbumGalleryPage")) },
+          { path: "face-search", lazy: page(() => import("./pages/client/FaceSearchPage")) },
         ],
       },
     ],

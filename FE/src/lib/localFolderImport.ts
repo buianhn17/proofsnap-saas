@@ -20,7 +20,7 @@ export interface LocalFolderScanResult {
 }
 
 // Phần mở rộng RAW phổ biến theo hãng máy ảnh.
-const RAW_EXTENSIONS = new Set([
+export const RAW_EXTENSIONS = new Set([
   "cr2", // Canon
   "cr3", // Canon
   "crw", // Canon (cũ)
@@ -45,7 +45,7 @@ const RAW_EXTENSIONS = new Set([
   "srw", // Samsung
 ]);
 
-const JPG_EXTENSIONS = new Set(["jpg", "jpeg"]);
+export const JPG_EXTENSIONS = new Set(["jpg", "jpeg"]);
 
 export const ACCEPTED_EXTENSIONS = new Set([
   ...RAW_EXTENSIONS,
@@ -65,7 +65,7 @@ export function isFileSystemAccessSupported(): boolean {
   );
 }
 
-function getExtension(fileName: string): string {
+export function getExtension(fileName: string): string {
   const dotIndex = fileName.lastIndexOf(".");
   if (dotIndex === -1 || dotIndex === fileName.length - 1) return "";
   return fileName.slice(dotIndex + 1).toLowerCase();

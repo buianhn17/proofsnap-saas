@@ -1,11 +1,16 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { api } from "../lib/api";
+import { STUDIO_SHOWS_CHANGED_EVENT, type StudioShow } from "../lib/studioShows";
 
 interface NavItem {
   to: string;
   label: string;
   enabled: boolean;
   icon: React.ReactNode;
+  /** Hiện badge số bài nộp chờ chủ Studio duyệt */
+  showPendingBadge?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -35,6 +40,19 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    to: "/admin/shows",
+    label: "Bàn giao Ekip",
+    enabled: true,
+    showPendingBadge: true,
+    icon: (
+      <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="m16 11 2 2 4-4" />
+      </svg>
+    ),
+  },
+  {
     to: "/admin/clients",
     label: "Khách hàng",
     enabled: false,
@@ -60,9 +78,44 @@ const navItems: NavItem[] = [
   },
 ];
 
+// Tổng số bài nộp đang chờ duyệt trên các show mình làm chủ Studio. Tải lại khi đổi trang,
+// khi quay lại tab, và ngay khi tạo show / duyệt bài (sự kiện STUDIO_SHOWS_CHANGED_EVENT).
+function usePendingReviewCount() {
+  const { pathname } = useLocation();
+  const [count, setCount] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => setRefreshKey((k) => k + 1);
+    const onVisible = () => document.visibilityState === "visible" && refresh();
+    window.addEventListener(STUDIO_SHOWS_CHANGED_EVENT, refresh);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener(STUDIO_SHOWS_CHANGED_EVENT, refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ owned: StudioShow[] }>("/api/studio/shows")
+      .then(({ data }) => {
+        if (!cancelled) setCount(data.owned.reduce((sum, show) => sum + show.stats.pending_count, 0));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, refreshKey]);
+
+  return count;
+}
+
 export default function AdminLayout() {
   const { photographer, logout } = useAuth();
   const navigate = useNavigate();
+  const pendingReviews = usePendingReviewCount();
 
   async function handleLogout() {
     await logout();
@@ -103,7 +156,7 @@ export default function AdminLayout() {
               <span className="text-base font-bold tracking-tight text-white">
                 LensProof
               </span>
-              <span className="rounded bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-indigo-300 uppercase">
+              <span className="rounded bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-indigo-300 uppercase">
                 Studio
               </span>
             </div>
@@ -122,7 +175,7 @@ export default function AdminLayout() {
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `group relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200 ${
+                  `group relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition duration-200 ${
                     isActive
                       ? "bg-white/10 text-white shadow-sm border border-white/10 backdrop-blur-md"
                       : "text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
@@ -141,7 +194,15 @@ export default function AdminLayout() {
                     >
                       {item.icon}
                     </span>
-                    <span>{item.label}</span>
+                    <span className="flex-1">{item.label}</span>
+                    {item.showPendingBadge && pendingReviews > 0 && (
+                      <span
+                        className="rounded-full border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-amber-300"
+                        aria-label={`${pendingReviews} bài chờ duyệt`}
+                      >
+                        {pendingReviews > 99 ? "99+" : pendingReviews}
+                      </span>
+                    )}
                   </>
                 )}
               </NavLink>
@@ -155,7 +216,7 @@ export default function AdminLayout() {
                   <span className="opacity-40">{item.icon}</span>
                   <span>{item.label}</span>
                 </div>
-                <span className="rounded bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-medium text-zinc-600 border border-white/5">
+                <span className="rounded bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 border border-white/5">
                   Sắp có
                 </span>
               </div>
@@ -196,7 +257,7 @@ export default function AdminLayout() {
           <button
             type="button"
             onClick={handleLogout}
-            className="mt-3 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-zinc-400 transition-all duration-200 hover:bg-red-500/10 hover:text-red-300 active:scale-[0.98]"
+            className="mt-3 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-zinc-400 transition duration-200 hover:bg-red-500/10 hover:text-red-300 active:scale-[0.98]"
           >
             <svg
               className="h-4 w-4 shrink-0 text-zinc-500"
