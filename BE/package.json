@@ -7,9 +7,10 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "test": "node --test",
+    "test": "node --test --test-force-exit",
     "setup:face-models": "node scripts/downloadFaceModels.js",
-    "reindex:faces": "node scripts/reindexFaceEmbeddings.js"
+    "reindex:faces": "node scripts/reindexFaceEmbeddings.js",
+    "seed:demo": "node scripts/seedDemoAlbums.js"
   },
   "dependencies": {
     "archiver": "^7.0.1",
