@@ -124,7 +124,7 @@ export default function AlbumsPage() {
 
         <Link
           to="/admin/albums/new"
-          className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 border border-indigo-400/30 transition-all duration-200 hover:from-indigo-400 hover:to-indigo-500 hover:shadow-indigo-500/40 hover:-translate-y-0.5 active:translate-y-0"
+          className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 border border-indigo-400/30 transition duration-200 hover:from-indigo-400 hover:to-indigo-500 hover:shadow-indigo-500/40 hover:-translate-y-0.5 active:translate-y-0"
         >
           <svg
             className="h-4 w-4 transition-transform duration-200 group-hover:rotate-90"
@@ -145,7 +145,7 @@ export default function AlbumsPage() {
       {/* KPI Stats Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {/* Total Albums */}
-        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/40 p-5 backdrop-blur-xl transition-all duration-200 hover:border-white/20">
+        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/40 p-5 backdrop-blur-xl transition duration-200 hover:border-white/20">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-zinc-400">Tổng số album</span>
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/5 border border-white/10 text-zinc-300">
@@ -157,14 +157,14 @@ export default function AlbumsPage() {
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-bold tracking-tight text-white">
-              {albums ? stats.total : "..."}
+              {albums ? stats.total : "…"}
             </span>
             <span className="text-xs text-zinc-400 font-mono">bộ sưu tập</span>
           </div>
         </div>
 
         {/* Active Albums */}
-        <div className="relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-emerald-950/10 p-5 backdrop-blur-xl transition-all duration-200 hover:border-emerald-500/30">
+        <div className="relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-emerald-950/10 p-5 backdrop-blur-xl transition duration-200 hover:border-emerald-500/30">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-emerald-400/80">Đang mở chọn ảnh</span>
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
@@ -176,14 +176,14 @@ export default function AlbumsPage() {
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-bold tracking-tight text-emerald-300">
-              {albums ? stats.open : "..."}
+              {albums ? stats.open : "…"}
             </span>
             <span className="text-xs text-emerald-400/70 font-mono">khách đang duyệt</span>
           </div>
         </div>
 
         {/* Archived / Locked */}
-        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/40 p-5 backdrop-blur-xl transition-all duration-200 hover:border-white/20">
+        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/40 p-5 backdrop-blur-xl transition duration-200 hover:border-white/20">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-zinc-400">Đã chốt / Lưu trữ</span>
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/5 border border-white/10 text-zinc-400">
@@ -195,7 +195,7 @@ export default function AlbumsPage() {
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-bold tracking-tight text-zinc-300">
-              {albums ? stats.archived : "..."}
+              {albums ? stats.archived : "…"}
             </span>
             <span className="text-xs text-zinc-400 font-mono">hoàn tất</span>
           </div>
@@ -211,7 +211,7 @@ export default function AlbumsPage() {
               key={f.key}
               type="button"
               onClick={() => setFilter(f.key)}
-              className={`rounded-xl px-3.5 py-1.5 text-xs font-medium transition-all duration-200 ${
+              className={`rounded-xl px-3.5 py-1.5 text-xs font-medium transition duration-200 ${
                 filter === f.key
                   ? "bg-white/15 text-white shadow-sm border border-white/10"
                   : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
@@ -241,17 +241,21 @@ export default function AlbumsPage() {
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
             <input
-              type="text"
+              type="search"
+              name="album-search"
+              aria-label="Tìm kiếm album"
+              autoComplete="off"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm kiếm album..."
+              placeholder="Tìm kiếm album…"
               className="w-full rounded-xl border border-white/10 bg-zinc-950/70 py-1.5 pl-9 pr-8 text-xs text-white placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
             {search && (
               <button
                 type="button"
                 onClick={() => setSearch("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                aria-label="Xóa từ khóa tìm kiếm"
+                className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-300"
               >
                 <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="18" y1="6" x2="6" y2="18" />
@@ -266,6 +270,7 @@ export default function AlbumsPage() {
             <button
               type="button"
               onClick={() => setViewMode("grid")}
+              aria-pressed={viewMode === "grid"}
               title="Dạng lưới thẻ"
               className={`rounded-lg p-1.5 transition-colors ${
                 viewMode === "grid"
@@ -283,6 +288,7 @@ export default function AlbumsPage() {
             <button
               type="button"
               onClick={() => setViewMode("list")}
+              aria-pressed={viewMode === "list"}
               title="Dạng bảng danh sách"
               className={`rounded-lg p-1.5 transition-colors ${
                 viewMode === "list"
@@ -352,7 +358,7 @@ export default function AlbumsPage() {
           {albums.length === 0 && (
             <Link
               to="/admin/albums/new"
-              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:bg-indigo-400"
+              className="mt-5 inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:bg-indigo-400"
             >
               + Tạo album đầu tiên
             </Link>
@@ -372,7 +378,7 @@ export default function AlbumsPage() {
               <Link
                 key={album.id}
                 to={`/admin/albums/${album.id}`}
-                className={`group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/60 backdrop-blur-xl transition-all duration-300 hover:border-indigo-500/40 hover:shadow-2xl hover:shadow-indigo-500/10 hover:-translate-y-1 ${
+                className={`group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/60 backdrop-blur-xl transition duration-300 hover:border-indigo-500/40 hover:shadow-2xl hover:shadow-indigo-500/10 hover:-translate-y-1 ${
                   isArchived ? "opacity-75" : ""
                 }`}
               >
@@ -545,7 +551,7 @@ export default function AlbumsPage() {
                     <td className="py-3.5 px-5 text-right">
                       <Link
                         to={`/admin/albums/${album.id}`}
-                        className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-zinc-200 transition-all hover:bg-white/15 hover:text-white"
+                        className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-zinc-200 transition hover:bg-white/15 hover:text-white"
                       >
                         Xem
                         <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

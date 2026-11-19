@@ -15,6 +15,7 @@ import {
   getPresetLabel,
 } from "../../lib/compressionPresets";
 import type { Album, Photo } from "../../lib/types";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 import PhotoUploadPanel, {
   type PhotoUploadPanelHandle,
   type UploadQueueItem,
@@ -89,6 +90,8 @@ export default function AlbumDetailPage() {
 
   // Edit album modal state
   const [isEditing, setIsEditing] = useState(false);
+  useEscapeKey(() => setPreviewPhoto(null), previewPhoto !== null);
+  useEscapeKey(() => setIsEditing(false), isEditing);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -324,7 +327,7 @@ export default function AlbumDetailPage() {
         <button
           type="button"
           onClick={handleCopyLink}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/60 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-md transition-all hover:bg-white/10 hover:text-white"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/60 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-md transition hover:bg-white/10 hover:text-white"
         >
           <svg className="h-3.5 w-3.5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
@@ -360,7 +363,7 @@ export default function AlbumDetailPage() {
         <div className="flex flex-wrap items-center gap-2.5">
           <Link
             to={`/admin/albums/${album.id}/annotations`}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition-all hover:bg-white/10 hover:text-white"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white"
           >
             <svg className="h-4 w-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 20h9" />
@@ -372,7 +375,7 @@ export default function AlbumDetailPage() {
           <button
             type="button"
             onClick={startEditing}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition-all hover:bg-white/10 hover:text-white"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white"
           >
             <svg className="h-4 w-4 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="3" />
@@ -385,7 +388,7 @@ export default function AlbumDetailPage() {
             <button
               type="button"
               onClick={() => uploadPanelRef.current?.openFileDialog()}
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-400 hover:to-indigo-500 hover:-translate-y-0.5 active:translate-y-0"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:from-indigo-400 hover:to-indigo-500 hover:-translate-y-0.5 active:translate-y-0"
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -431,7 +434,8 @@ export default function AlbumDetailPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Tìm theo tên file (VD: DSC_01)..."
+            placeholder="Tìm theo tên file (VD: DSC_01)…"
+            aria-label="Tìm ảnh theo tên file"
             className="w-full rounded-xl border border-white/10 bg-zinc-950/70 py-1.5 pl-9 pr-8 text-xs text-white placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
         </div>
@@ -453,7 +457,7 @@ export default function AlbumDetailPage() {
           return (
             <div
               key={photo.id}
-              className={`group relative aspect-[3/2] overflow-hidden rounded-2xl border bg-zinc-950 transition-all duration-300 ${
+              className={`group relative aspect-[3/2] overflow-hidden rounded-2xl border bg-zinc-950 transition duration-300 ${
                 isSelected
                   ? "border-indigo-500 ring-2 ring-indigo-500/50"
                   : isCover
@@ -477,7 +481,7 @@ export default function AlbumDetailPage() {
                 type="button"
                 onClick={() => toggleSelected(photo.id)}
                 aria-label="Chọn ảnh"
-                className={`absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-lg border text-xs transition-all ${
+                className={`absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-lg border text-xs transition ${
                   isSelected
                     ? "border-indigo-500 bg-indigo-600 text-white shadow-md shadow-indigo-500/50"
                     : "border-white/30 bg-black/40 text-transparent hover:border-white/60 group-hover:text-white/40"
@@ -488,7 +492,7 @@ export default function AlbumDetailPage() {
 
               {/* Cover Badge */}
               {isCover && (
-                <span className="absolute left-2 top-2 rounded-md border border-amber-500/30 bg-amber-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300 backdrop-blur-md">
+                <span className="absolute left-2 top-2 rounded-md border border-amber-500/30 bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-300 backdrop-blur-md">
                   Ảnh bìa
                 </span>
               )}
@@ -497,7 +501,7 @@ export default function AlbumDetailPage() {
               <button
                 type="button"
                 onClick={() => setPreviewPhoto(photo)}
-                className="absolute inset-x-4 top-1/2 -translate-y-1/2 flex items-center justify-center gap-1.5 rounded-xl border border-white/20 bg-black/60 py-1.5 text-[11px] font-medium text-white opacity-0 backdrop-blur-md transition-all duration-200 group-hover:opacity-100 hover:bg-black/80"
+                className="absolute inset-x-4 top-1/2 -translate-y-1/2 flex items-center justify-center gap-1.5 rounded-xl border border-white/20 bg-black/60 py-1.5 text-[11px] font-medium text-white opacity-0 backdrop-blur-md transition duration-200 group-hover:opacity-100 hover:bg-black/80"
               >
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
@@ -514,7 +518,7 @@ export default function AlbumDetailPage() {
                   disabled={isSavingCover}
                   className="absolute inset-x-2 bottom-7 rounded-lg border border-white/10 bg-zinc-900/90 px-2 py-1 text-[10px] font-medium text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-white/10 hover:text-white disabled:opacity-50"
                 >
-                  {isSavingCover ? "Đang lưu..." : "Đặt làm ảnh bìa"}
+                  {isSavingCover ? "Đang lưu…" : "Đặt làm ảnh bìa"}
                 </button>
               )}
 
@@ -536,7 +540,7 @@ export default function AlbumDetailPage() {
             onDragLeave={() => setIsDraggingOver(false)}
             onDrop={handleDropFiles}
             onClick={() => uploadPanelRef.current?.openFileDialog()}
-            className={`flex aspect-[3/2] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed transition-all duration-200 ${
+            className={`flex aspect-[3/2] cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed transition duration-200 ${
               isDraggingOver
                 ? "border-indigo-500 bg-indigo-500/10"
                 : "border-white/15 bg-zinc-900/30 hover:border-indigo-500/50 hover:bg-zinc-900/60"
@@ -648,7 +652,7 @@ export default function AlbumDetailPage() {
               className="block w-full text-xs text-zinc-400 file:mr-3 file:rounded-xl file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-white/20 disabled:opacity-50"
             />
             {zipUploading && (
-              <p className="mt-2 text-xs text-indigo-400">Đang tải file ZIP lên Google Drive...</p>
+              <p className="mt-2 text-xs text-indigo-400">Đang tải file ZIP lên Google Drive…</p>
             )}
             {zipUploadError && (
               <p className="mt-2 text-xs text-rose-400">{zipUploadError}</p>
@@ -660,6 +664,9 @@ export default function AlbumDetailPage() {
       {/* Quick Lightbox Preview Modal */}
       {previewPhoto && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Xem trước ${previewPhoto.original_base_filename}`}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-md animate-fade-in-up"
           onClick={() => setPreviewPhoto(null)}
         >
@@ -685,6 +692,7 @@ export default function AlbumDetailPage() {
                 <button
                   type="button"
                   onClick={() => setPreviewPhoto(null)}
+                  aria-label="Đóng xem trước"
                   className="rounded-lg p-1 text-zinc-400 hover:bg-white/10 hover:text-white"
                 >
                   <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -709,16 +717,17 @@ export default function AlbumDetailPage() {
 
       {/* Edit Album Configuration Modal */}
       {isEditing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in-up">
+        <div role="dialog" aria-modal="true" aria-labelledby="edit-album-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in-up">
           <div className="flex max-h-[90vh] w-full max-w-[620px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/80 backdrop-blur-2xl animate-scale-in">
             <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
               <div>
-                <h2 className="text-base font-bold text-white">Cấu hình bộ sưu tập</h2>
+                <h2 id="edit-album-title" className="text-base font-bold text-white">Cấu hình bộ sưu tập</h2>
                 <p className="text-xs text-zinc-400">Thay đổi thông tin và quyền hạn của album</p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsEditing(false)}
+                aria-label="Đóng cấu hình"
                 className="flex h-8 w-8 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/10 hover:text-white"
               >
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -749,10 +758,10 @@ export default function AlbumDetailPage() {
               <div className="grid grid-cols-1 gap-5 p-6 pt-3 sm:grid-cols-2">
                 {/* Album Name */}
                 <div className="flex flex-col gap-1.5 sm:col-span-2">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                  <label htmlFor="edit-name" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
                     Tên album
                   </label>
-                  <input
+                  <input id="edit-name" name="name" autoComplete="off"
                     type="text"
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
@@ -763,7 +772,7 @@ export default function AlbumDetailPage() {
                 {/* PIN Code */}
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                    <label htmlFor="edit-pin" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
                       Mã PIN
                     </label>
                     <button
@@ -774,7 +783,7 @@ export default function AlbumDetailPage() {
                       {showPin ? "Ẩn" : "Hiện"}
                     </button>
                   </div>
-                  <input
+                  <input id="edit-pin" name="pin" autoComplete="new-password" spellCheck={false}
                     type={showPin ? "text" : "password"}
                     value={editPin}
                     onChange={(e) => setEditPin(e.target.value)}
@@ -785,10 +794,10 @@ export default function AlbumDetailPage() {
 
                 {/* Max Selectable Photos */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                  <label htmlFor="edit-max" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
                     Số ảnh chọn tối đa
                   </label>
-                  <input
+                  <input id="edit-max" name="max_selectable" inputMode="numeric"
                     type="number"
                     min={1}
                     value={editMaxSelectable}
@@ -800,10 +809,10 @@ export default function AlbumDetailPage() {
 
                 {/* Deadline */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                  <label htmlFor="edit-deadline" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
                     Hạn chót chọn ảnh
                   </label>
-                  <input
+                  <input id="edit-deadline" name="deadline"
                     type="datetime-local"
                     value={editDeadline}
                     onChange={(e) => setEditDeadline(e.target.value)}
@@ -813,10 +822,10 @@ export default function AlbumDetailPage() {
 
                 {/* Status */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                  <label htmlFor="edit-status" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
                     Trạng thái album
                   </label>
-                  <select
+                  <select id="edit-status" name="status"
                     value={editStatus}
                     onChange={(e) => setEditStatus(e.target.value as "active" | "archived")}
                     className={`${modalInputClass} appearance-none`}
@@ -878,7 +887,7 @@ export default function AlbumDetailPage() {
                   disabled={isSaving}
                   className="rounded-xl bg-indigo-500 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 hover:bg-indigo-400 disabled:opacity-50"
                 >
-                  {isSaving ? "Đang lưu..." : "Lưu thay đổi"}
+                  {isSaving ? "Đang lưu…" : "Lưu thay đổi"}
                 </button>
               </div>
             </form>

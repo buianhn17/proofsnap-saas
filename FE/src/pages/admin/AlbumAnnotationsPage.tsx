@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
+import { SendIcon } from "../../components/Icons";
 import type { Album } from "../../lib/types";
 
 interface AnnotationPoint {
@@ -254,9 +255,9 @@ export default function AlbumAnnotationsPage() {
             type="button"
             onClick={handleCompleteEdits}
             disabled={!currentPhoto || isCompleting}
-            className="rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-50"
+            className="rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-50"
           >
-            {isCompleting ? "Đang lưu..." : "Hoàn tất ảnh này"}
+            {isCompleting ? "Đang lưu…" : "Hoàn tất ảnh này"}
           </button>
         </div>
       </div>
@@ -292,17 +293,19 @@ export default function AlbumAnnotationsPage() {
                 <button
                   type="button"
                   onClick={() => setPhotoIndex((i) => Math.max(0, i - 1))}
+                  aria-label="Ảnh trước"
                   disabled={photoIndex === 0}
                   className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white hover:bg-white/10 disabled:opacity-30"
                 >
                   ←
                 </button>
-                <span className="text-xs text-zinc-400 font-mono">
+                <span className="text-xs tabular-nums text-zinc-400 font-mono">
                   {photoIndex + 1} / {photos.length}
                 </span>
                 <button
                   type="button"
                   onClick={() => setPhotoIndex((i) => Math.min(photos.length - 1, i + 1))}
+                  aria-label="Ảnh tiếp theo"
                   disabled={photoIndex === photos.length - 1}
                   className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white hover:bg-white/10 disabled:opacity-30"
                 >
@@ -315,7 +318,7 @@ export default function AlbumAnnotationsPage() {
             <div className="flex flex-1 items-center justify-center overflow-auto p-6 bg-zinc-950/40">
               {currentPhoto && (
                 <div
-                  className="relative min-h-[400px] shrink-0 rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl transition-all"
+                  className="relative min-h-[400px] shrink-0 rounded-2xl overflow-hidden border border-white/10 bg-black shadow-2xl transition"
                   style={{ width: `${zoom}%`, maxWidth: "100%" }}
                 >
                   <img
@@ -382,17 +385,19 @@ export default function AlbumAnnotationsPage() {
                 <button
                   type="button"
                   onClick={() => setZoom((z) => Math.max(25, z - 25))}
-                  className="text-zinc-400 hover:text-white"
+                  aria-label="Thu nhỏ"
+                  className="flex size-7 items-center justify-center rounded-lg text-base text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
                 >
-                  🔍-
+                  −
                 </button>
-                <span className="w-12 text-center text-xs font-mono text-zinc-200">{zoom}%</span>
+                <span className="w-12 text-center text-xs font-mono tabular-nums text-zinc-200">{zoom}%</span>
                 <button
                   type="button"
                   onClick={() => setZoom((z) => Math.min(300, z + 25))}
-                  className="text-zinc-400 hover:text-white"
+                  aria-label="Phóng to"
+                  className="flex size-7 items-center justify-center rounded-lg text-base text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
                 >
-                  🔍+
+                  +
                 </button>
               </div>
             </div>
@@ -440,7 +445,7 @@ export default function AlbumAnnotationsPage() {
                           {index + 1}
                         </span>
                         <span
-                          className={`rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider font-mono ${
+                          className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider font-mono ${
                             isDone
                               ? "border-emerald-500/30 bg-emerald-950/60 text-emerald-300"
                               : "border-amber-500/30 bg-amber-950/60 text-amber-300"
@@ -472,7 +477,7 @@ export default function AlbumAnnotationsPage() {
                       }`}
                     >
                       {isBusy
-                        ? "Đang lưu..."
+                        ? "Đang lưu…"
                         : isDone
                         ? "✓ Đã xử lý (Click để mở lại)"
                         : "✓ Đánh dấu hoàn tất"}
@@ -520,10 +525,11 @@ export default function AlbumAnnotationsPage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleAddNote();
                   }}
+                  aria-label={noteMode === "client_reply" ? "Phản hồi cho khách" : "Ghi chú nội bộ"}
                   placeholder={
                     noteMode === "client_reply"
-                      ? "Viết phản hồi cho khách..."
-                      : "Thêm ghi chú nội bộ thợ..."
+                      ? "Viết phản hồi cho khách…"
+                      : "Thêm ghi chú nội bộ thợ…"
                   }
                   className="flex-1 rounded-xl border border-white/10 bg-zinc-900/80 px-3 py-2 text-xs text-white placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
@@ -532,9 +538,9 @@ export default function AlbumAnnotationsPage() {
                   onClick={handleAddNote}
                   disabled={!noteText.trim() || isPostingNote}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 transition-colors"
-                  aria-label="Gửi"
+                  aria-label="Gửi ghi chú"
                 >
-                  ➤
+                  <SendIcon size={14} />
                 </button>
               </div>
             </div>

@@ -6,8 +6,12 @@ export default function RequireAuth() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">
-        Đang kiểm tra đăng nhập...
+      <div
+        role="status"
+        className="flex min-h-dvh items-center justify-center gap-3 bg-[#090a0f] text-sm text-zinc-400"
+      >
+        <span className="size-4 animate-spin rounded-full border-2 border-white/15 border-t-indigo-400" aria-hidden="true" />
+        Đang kiểm tra đăng nhập…
       </div>
     );
   }

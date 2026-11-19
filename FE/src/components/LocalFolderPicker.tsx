@@ -38,7 +38,7 @@ export default function LocalFolderPicker({
 
   if (!supported) {
     return (
-      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+      <div className="rounded-xl border border-amber-500/30 bg-amber-950/50 px-3.5 py-2.5 text-sm text-amber-200">
         {FILE_SYSTEM_ACCESS_UNSUPPORTED_MESSAGE}
       </div>
     );
@@ -58,37 +58,37 @@ export default function LocalFolderPicker({
         type="button"
         onClick={handlePick}
         disabled={isScanning}
-        className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+        className="rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:bg-indigo-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {isScanning ? "Đang quét thư mục..." : "Chọn thư mục ảnh gốc trên máy"}
+        {isScanning ? "Đang quét thư mục…" : "Chọn thư mục ảnh gốc trên máy"}
       </button>
 
       {error && (
-        <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p className="mt-2 rounded-xl border border-rose-500/20 bg-rose-950/50 px-3.5 py-2.5 text-sm text-rose-300">
           {error}
         </p>
       )}
 
       {result && !error && (
         <div className="mt-3 space-y-3">
-          <div className="rounded-md border border-slate-200 bg-white p-3 text-sm">
-            <p className="font-medium text-slate-900">
-              Thư mục "{result.folderName}": {result.files.length} ảnh tìm
+          <div className="rounded-xl border border-white/10 bg-zinc-900/60 p-3.5 text-sm">
+            <p className="font-medium text-zinc-100">
+              Thư mục “{result.folderName}”: {result.files.length} ảnh tìm
               thấy
             </p>
-            <p className="mt-1 text-slate-600">
+            <p className="mt-1 text-zinc-400 tabular-nums">
               RAW: {rawCount} · JPG: {jpgCount}
               {result.skippedCount > 0 &&
                 ` · Bỏ qua ${result.skippedCount} file khác định dạng`}
             </p>
-            <p className="mt-1 text-slate-600">
+            <p className="mt-1 text-zinc-400 tabular-nums">
               Đã ghép {result.pairing.pairs.length} cặp RAW+JPG
             </p>
           </div>
 
           {unmatched.length > 0 && (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
-              <p className="font-medium text-amber-800">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-950/40 p-3.5 text-sm">
+              <p className="font-medium text-amber-200">
                 {unmatched.length} file lẻ không có cặp (chỉ RAW hoặc chỉ
                 JPG):
               </p>
@@ -96,10 +96,10 @@ export default function LocalFolderPicker({
                 {unmatched.map((f) => (
                   <li
                     key={f.relativePath}
-                    className="flex items-center justify-between gap-2 text-amber-700"
+                    className="flex min-w-0 items-center justify-between gap-2 text-amber-300/90"
                   >
                     <span className="truncate">{f.relativePath}</span>
-                    <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs uppercase">
+                    <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] uppercase">
                       {f.kind}
                     </span>
                   </li>

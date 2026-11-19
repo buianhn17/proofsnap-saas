@@ -523,7 +523,7 @@ export default function CullingTestPage() {
             disabled={isScanning || isRunning}
             className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
           >
-            {isScanning ? "Đang quét..." : "Chọn thư mục ảnh buổi chụp thật"}
+            {isScanning ? "Đang quét…" : "Chọn thư mục ảnh buổi chụp thật"}
           </button>
 
           {scanResult && (
@@ -606,7 +606,7 @@ export default function CullingTestPage() {
           </div>
           <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
             <div
-              className="h-full rounded-full bg-slate-900 transition-all"
+              className="h-full rounded-full bg-slate-900 transition"
               style={{
                 width: `${(progress.processed / progress.total) * 100}%`,
               }}

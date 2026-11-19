@@ -29,7 +29,7 @@ export default function DeadlineCountdownBar() {
 
   if (album.is_locked) {
     return (
-      <div className="border-b border-[#6b2e2e] bg-[#3d1a1a] px-6 py-2 text-center text-sm font-medium text-[#ffb4ab]">
+      <div className="mb-6 rounded-xl border border-rose-500/30 bg-rose-950/60 px-4 py-2 text-center text-sm font-medium text-rose-300">
         Album đã bị khóa — không thể thả tim hoặc thêm ghi chú mới.
       </div>
     );
@@ -37,7 +37,7 @@ export default function DeadlineCountdownBar() {
 
   if (!album.selection_deadline) {
     return (
-      <div className="border-b border-[#43474f] bg-[#1c1b1b] px-6 py-2 text-center text-xs text-[#c1c6d4]">
+      <div className="mb-6 rounded-xl border border-white/10 bg-zinc-900/60 px-4 py-2 text-center text-xs text-zinc-400">
         Không giới hạn thời gian chọn ảnh
       </div>
     );
@@ -48,17 +48,21 @@ export default function DeadlineCountdownBar() {
 
   return (
     <div
-      className={`border-b px-6 py-2 text-center text-sm font-medium ${
+      className={`mb-6 rounded-xl border px-4 py-2 text-center text-sm font-medium ${
         expired
-          ? "border-[#6b2e2e] bg-[#3d1a1a] text-[#ffb4ab]"
+          ? "border-rose-500/30 bg-rose-950/60 text-rose-300"
           : remainingMs < 5 * 60 * 1000
-            ? "border-[#805d00] bg-[#4a3600] text-[#ffddb8]"
-            : "border-[#43474f] bg-[#1c1b1b] text-[#c1c6d4]"
+            ? "border-amber-500/30 bg-amber-950/60 text-amber-200"
+            : "border-white/10 bg-zinc-900/60 text-zinc-300"
       }`}
     >
       {expired
         ? "Đã hết hạn chọn ảnh — không thể thả tim hoặc thêm ghi chú mới."
-        : `Còn ${formatRemaining(remainingMs)} để chọn ảnh`}
+        : (
+            <>
+              Còn <span className="font-semibold tabular-nums">{formatRemaining(remainingMs)}</span> để chọn ảnh
+            </>
+          )}
     </div>
   );
 }

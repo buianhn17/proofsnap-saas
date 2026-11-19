@@ -15,7 +15,9 @@ import {
 import { isAxiosError } from "axios";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
+import { MapPinIcon, PencilIcon, TrashIcon } from "./Icons";
 import { useClientAlbum, useIsAlbumExpired } from "../contexts/ClientAlbumContext";
+import { useEscapeKey } from "../lib/useEscapeKey";
 
 export interface AnnotationPoint {
   x: number;
@@ -104,10 +106,26 @@ function formatRelativeTime(iso: string): string {
   return `${Math.floor(hours / 24)} ngày trước`;
 }
 
-const TOOLS: { key: DrawTool; label: string; icon: string }[] = [
-  { key: "pen", label: "Vẽ tự do", icon: "✏️" },
-  { key: "circle", label: "Khoanh tròn", icon: "◯" },
-  { key: "rectangle", label: "Khoanh vuông", icon: "▢" },
+const TOOLS: { key: DrawTool; label: string; icon: React.ReactNode }[] = [
+  { key: "pen", label: "Vẽ tự do", icon: <PencilIcon /> },
+  {
+    key: "circle",
+    label: "Khoanh tròn",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+      </svg>
+    ),
+  },
+  {
+    key: "rectangle",
+    label: "Khoanh vuông",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <rect x="4" y="4" width="16" height="16" rx="2" />
+      </svg>
+    ),
+  },
 ];
 
 export default function PhotoAnnotationLightbox({
@@ -122,6 +140,7 @@ export default function PhotoAnnotationLightbox({
   isSelected,
   onToggleSelect,
 }: PhotoAnnotationLightboxProps) {
+  useEscapeKey(onClose);
   const { album } = useClientAlbum();
   const expired = useIsAlbumExpired();
 
@@ -248,21 +267,21 @@ export default function PhotoAnnotationLightbox({
     currentIndex !== undefined && totalCount !== undefined && onNavigate !== undefined;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#131313]">
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#43474f] bg-[#1c1b1b] px-6">
+    <div role="dialog" aria-modal="true" aria-label="Xem ảnh và ghi chú" className="fixed inset-0 z-50 flex flex-col bg-zinc-950">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-900 px-6">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onClose}
             aria-label="Đóng"
-            className="text-xl text-[#e5e2e1] hover:text-white"
+            className="text-xl text-zinc-100 hover:text-white"
           >
             ✕
           </button>
           {albumName && (
-            <span className="text-base font-semibold text-[#e5e2e1]">{albumName}</span>
+            <span className="text-base font-semibold text-zinc-100">{albumName}</span>
           )}
-          <span className="truncate text-sm text-[#c1c6d4]">{photoName}</span>
+          <span className="truncate text-sm text-zinc-400">{photoName}</span>
         </div>
         <div className="flex items-center gap-4">
           {showNav && (
@@ -271,18 +290,20 @@ export default function PhotoAnnotationLightbox({
                 type="button"
                 onClick={() => onNavigate!(-1)}
                 disabled={currentIndex === 0}
-                className="text-[#c1c6d4] hover:text-[#e5e2e1] disabled:opacity-30"
+                aria-label="Ảnh trước"
+                className="flex size-8 items-center justify-center rounded-lg text-lg text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 disabled:pointer-events-none disabled:opacity-30"
               >
                 ‹
               </button>
-              <span className="text-sm text-[#c1c6d4]">
+              <span className="text-sm tabular-nums text-zinc-400">
                 {currentIndex! + 1} / {totalCount}
               </span>
               <button
                 type="button"
                 onClick={() => onNavigate!(1)}
                 disabled={currentIndex === totalCount! - 1}
-                className="text-[#c1c6d4] hover:text-[#e5e2e1] disabled:opacity-30"
+                aria-label="Ảnh tiếp theo"
+                className="flex size-8 items-center justify-center rounded-lg text-lg text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 disabled:pointer-events-none disabled:opacity-30"
               >
                 ›
               </button>
@@ -294,10 +315,10 @@ export default function PhotoAnnotationLightbox({
               onClick={onToggleSelect}
               disabled={expired}
               title={expired ? "Đã hết hạn chọn ảnh" : "Thả tim"}
-              className={`flex items-center gap-2 rounded-[4px] px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                 isSelected
-                  ? "bg-[#a9c7ff] text-white hover:bg-[#93b6f5]"
-                  : "border border-[#43474f] text-[#e5e2e1] hover:bg-[#2a2a2a]"
+                  ? "bg-indigo-500 text-white hover:bg-indigo-400"
+                  : "border border-white/10 text-zinc-100 hover:bg-zinc-800"
               }`}
             >
               <span className={isSelected ? "text-red-400" : ""}>
@@ -385,7 +406,7 @@ export default function PhotoAnnotationLightbox({
                       top: `${center.y}%`,
                       transform: "translate(-50%, -50%)",
                     }}
-                    className="absolute flex size-6 items-center justify-center rounded-full border-2 border-black bg-[#2a2a2a] text-xs font-semibold text-[#e5e2e1]"
+                    className="absolute flex size-6 items-center justify-center rounded-full border-2 border-black bg-zinc-800 text-xs font-semibold text-zinc-100"
                   >
                     {index + 1}
                   </span>
@@ -398,14 +419,14 @@ export default function PhotoAnnotationLightbox({
                     top: `${pendingPoint.y}%`,
                     transform: "translate(-50%, -50%)",
                   }}
-                  className="absolute size-4 rounded-full border-2 border-black bg-[#93b6f5]"
+                  className="absolute size-4 rounded-full border-2 border-black bg-indigo-400"
                 />
               )}
             </div>
           </div>
 
           {!drawDisabled && !hasPending && (
-            <div className="absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-[8px] border border-[#43474f] bg-[#1c1b1b] p-1.5 shadow-lg">
+            <div className="absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-white/10 bg-zinc-900 p-1.5 shadow-lg">
               {TOOLS.map((t) => (
                 <button
                   key={t.key}
@@ -416,16 +437,16 @@ export default function PhotoAnnotationLightbox({
                     setIsDrawMode(true);
                     setIsPinMode(false);
                   }}
-                  className={`flex size-9 items-center justify-center rounded-[6px] text-base ${
+                  className={`flex size-9 items-center justify-center rounded-lg text-base ${
                     isDrawMode && tool === t.key
-                      ? "bg-[#a9c7ff] text-white"
-                      : "text-[#c1c6d4] hover:bg-[#2a2a2a]"
+                      ? "bg-indigo-500 text-white"
+                      : "text-zinc-400 hover:bg-zinc-800"
                   }`}
                 >
                   {t.icon}
                 </button>
               ))}
-              <div className="mx-1 h-6 w-px bg-[#43474f]" />
+              <div className="mx-1 h-6 w-px bg-zinc-700" />
               <button
                 type="button"
                 title="Hủy công cụ đang chọn"
@@ -433,18 +454,18 @@ export default function PhotoAnnotationLightbox({
                   setIsDrawMode(false);
                   setCurrentStroke(null);
                 }}
-                className="flex size-9 items-center justify-center rounded-[6px] text-base text-[#c1c6d4] hover:bg-[#2a2a2a]"
+                className="flex size-9 items-center justify-center rounded-lg text-base text-zinc-400 hover:bg-zinc-800"
               >
-                🗑️
+                <TrashIcon />
               </button>
             </div>
           )}
         </div>
 
-        <div className="flex w-[340px] shrink-0 flex-col border-l border-[#43474f] bg-[#1c1b1b]">
-          <div className="flex items-center justify-between border-b border-[#43474f] px-6 py-5">
-            <h2 className="text-xl font-semibold text-[#e5e2e1]">Ghi chú chỉnh sửa</h2>
-            <span className="rounded-full border border-[#43474f] bg-[#2a2a2a] px-2.5 py-1 text-xs font-medium text-[#c1c6d4]">
+        <div className="flex w-[340px] shrink-0 flex-col border-l border-white/10 bg-zinc-900">
+          <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
+            <h2 className="text-xl font-semibold text-zinc-100">Ghi chú chỉnh sửa</h2>
+            <span className="rounded-full border border-white/10 bg-zinc-800 px-2.5 py-1 text-xs font-medium text-zinc-400">
               {annotations.length} Ghi chú
             </span>
           </div>
@@ -456,7 +477,7 @@ export default function PhotoAnnotationLightbox({
               </p>
             )}
             {sortedAnnotations.length === 0 && (
-              <p className="text-sm text-[#c1c6d4]">
+              <p className="text-sm text-zinc-400">
                 Chưa có ghi chú nào — dùng công cụ bên dưới ảnh hoặc ghim 1 điểm để bắt đầu.
               </p>
             )}
@@ -464,15 +485,15 @@ export default function PhotoAnnotationLightbox({
               {sortedAnnotations.map((a, index) => (
                 <div
                   key={a.id}
-                  className="rounded-[4px] border border-[#43474f] bg-[#131313] p-4"
+                  className="rounded-lg border border-white/10 bg-zinc-950 p-4"
                 >
                   <div className="flex items-start gap-3">
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-[#a9c7ff] text-xs font-semibold text-white">
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-xs font-semibold text-white">
                       {index + 1}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-[#e5e2e1]">{a.note_text}</p>
-                      <p className="mt-1.5 text-xs text-[#8b919e]">
+                      <p className="text-sm text-zinc-100">{a.note_text}</p>
+                      <p className="mt-1.5 text-xs text-zinc-500">
                         {formatRelativeTime(a.created_at)}
                       </p>
                     </div>
@@ -483,7 +504,7 @@ export default function PhotoAnnotationLightbox({
           </div>
 
           {!drawDisabled && (
-            <div className="border-t border-[#43474f] p-3">
+            <div className="border-t border-white/10 p-3">
               {hasPending ? (
                 <>
                   <textarea
@@ -492,14 +513,15 @@ export default function PhotoAnnotationLightbox({
                     rows={3}
                     maxLength={2000}
                     autoFocus
-                    placeholder="Ví dụ: chỉnh sáng vùng này, xóa vết..."
-                    className="w-full resize-none rounded-[4px] border border-[#43474f] bg-[#131313] px-3 py-2 text-sm text-[#e5e2e1] placeholder:text-[#5a5958] focus:outline-none focus:ring-1 focus:ring-[#a9c7ff]"
+                    aria-label="Nội dung ghi chú tại điểm ghim"
+                    placeholder="Ví dụ: chỉnh sáng vùng này, xóa vết…"
+                    className="w-full resize-none rounded-lg border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-400"
                   />
                   <div className="mt-2 flex gap-2">
                     <button
                       type="button"
                       onClick={cancelPending}
-                      className="flex-1 rounded-[4px] border border-[#43474f] px-3 py-2 text-sm text-[#e5e2e1] hover:bg-[#2a2a2a]"
+                      className="flex-1 rounded-lg border border-white/10 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-800"
                     >
                       Hủy
                     </button>
@@ -507,9 +529,9 @@ export default function PhotoAnnotationLightbox({
                       type="button"
                       onClick={() => saveAnnotation()}
                       disabled={isSaving || noteText.trim().length === 0}
-                      className="flex-1 rounded-[4px] bg-[#a9c7ff] px-3 py-2 text-sm font-semibold text-white hover:bg-[#93b6f5] disabled:opacity-50"
+                      className="flex-1 rounded-lg bg-indigo-500 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-400 disabled:opacity-50"
                     >
-                      {isSaving ? "Đang lưu..." : "Lưu ghi chú"}
+                      {isSaving ? "Đang lưu…" : "Lưu ghi chú"}
                     </button>
                   </div>
                 </>
@@ -520,8 +542,9 @@ export default function PhotoAnnotationLightbox({
                     onChange={(e) => setNoteText(e.target.value)}
                     rows={2}
                     maxLength={2000}
-                    placeholder="Nhấn vào ảnh để ghim vị trí hoặc viết ghi chú chung..."
-                    className="w-full resize-none rounded-[4px] border border-[#43474f] bg-[#131313] px-3 py-2 text-sm text-[#e5e2e1] placeholder:text-[#5a5958] focus:outline-none focus:ring-1 focus:ring-[#a9c7ff]"
+                    aria-label="Ghi chú chung cho ảnh"
+                    placeholder="Nhấn vào ảnh để ghim vị trí hoặc viết ghi chú chung…"
+                    className="w-full resize-none rounded-lg border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-indigo-400"
                   />
                   <div className="mt-2 flex gap-2">
                     <button
@@ -530,21 +553,21 @@ export default function PhotoAnnotationLightbox({
                         setIsPinMode((v) => !v);
                         setIsDrawMode(false);
                       }}
-                      className={`flex flex-1 items-center justify-center gap-1.5 rounded-[4px] border px-3 py-2 text-sm ${
+                      className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm ${
                         isPinMode
-                          ? "border-[#a9c7ff] text-[#a9c7ff]"
-                          : "border-[#43474f] text-[#c1c6d4] hover:bg-[#2a2a2a]"
+                          ? "border-indigo-500 text-indigo-300"
+                          : "border-white/10 text-zinc-400 hover:bg-zinc-800"
                       }`}
                     >
-                      📍 {isPinMode ? "Nhấn vào ảnh..." : "Click ảnh để ghim"}
+                      <MapPinIcon size={14} /> {isPinMode ? "Nhấn vào ảnh…" : "Nhấn ảnh để ghim"}
                     </button>
                     <button
                       type="button"
                       onClick={() => saveAnnotation({ x: 50, y: 50 })}
                       disabled={isSaving || noteText.trim().length === 0}
-                      className="flex flex-1 items-center justify-center gap-1.5 rounded-[4px] bg-[#a9c7ff] px-3 py-2 text-sm font-semibold text-white hover:bg-[#93b6f5] disabled:opacity-50"
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-500 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-400 disabled:opacity-50"
                     >
-                      {isSaving ? "Đang lưu..." : "+ Thêm ghi chú mới"}
+                      {isSaving ? "Đang lưu…" : "+ Thêm ghi chú mới"}
                     </button>
                   </div>
                 </>

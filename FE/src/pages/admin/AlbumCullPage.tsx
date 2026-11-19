@@ -133,9 +133,9 @@ const FLAG_DOT: Record<CullingFlag, string> = {
 };
 
 const FLAG_OVERLAY: Record<CullingFlag, { bg: string; border: string; text: string; label: string }> = {
-  green: { bg: "bg-[#1c3325]", border: "border-[#2e5c41]", text: "text-[#93f5b7]", label: "CHẤT LƯỢNG TỐT" },
-  yellow: { bg: "bg-[#4a3600]", border: "border-[#805d00]", text: "text-[#ffb95e]", label: "CẦN XEM LẠI" },
-  red: { bg: "bg-[#3d1a1a]", border: "border-[#6b2e2e]", text: "text-[#ffb4ab]", label: "MỜ HOẶC NHẮM MẮT" },
+  green: { bg: "bg-emerald-950/60", border: "border-emerald-500/30", text: "text-emerald-300", label: "CHẤT LƯỢNG TỐT" },
+  yellow: { bg: "bg-amber-950/60", border: "border-amber-500/30", text: "text-amber-300", label: "CẦN XEM LẠI" },
+  red: { bg: "bg-rose-950/60", border: "border-rose-500/30", text: "text-rose-300", label: "MỜ HOẶC NHẮM MẮT" },
 };
 
 const EYE_RING: Record<EyeStatus, string> = {
@@ -901,7 +901,7 @@ export default function AlbumCullPage() {
       <button
         type="button"
         onClick={() => index !== undefined && setReviewIndex(index)}
-        className="group relative block w-full overflow-hidden rounded-[4px] bg-[#201f1f] ring-1 ring-[#414752] transition-transform hover:z-10 hover:scale-[1.03] hover:ring-[#a9c7ff]"
+        className="group relative block w-full overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/10 transition-transform hover:z-10 hover:scale-[1.03] hover:ring-indigo-400"
       >
         {thumbnails[path] && (
           <img
@@ -919,7 +919,7 @@ export default function AlbumCullPage() {
           />
         )}
         {opts.isRepresentative && (
-          <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.6px] text-[#a9c7ff]">
+          <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] tracking-wider text-indigo-300">
             ★ Đại diện
           </span>
         )}
@@ -928,7 +928,7 @@ export default function AlbumCullPage() {
         >
           {DECISION_LABEL[decision]}
         </span>
-        <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-[rgba(19,19,19,0.9)] to-transparent px-2 py-1.5 text-left font-mono text-[11px] tracking-[0.6px] text-[#e5e2e1]">
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-[rgba(19,19,19,0.9)] to-transparent px-2 py-1.5 text-left font-mono text-[11px] tracking-wider text-zinc-100">
           {item.file.file.name}
         </span>
       </button>
@@ -953,7 +953,7 @@ export default function AlbumCullPage() {
         <button
           type="button"
           onClick={() => toggleBurst(card.burst.burstId)}
-          className="absolute bottom-9 left-2 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.6px] text-[#e5e2e1] hover:bg-black/90"
+          className="absolute bottom-9 left-2 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] tracking-wider text-zinc-100 hover:bg-black/90"
         >
           +{card.burst.items.length - 1} ảnh giống
         </button>
@@ -1251,12 +1251,12 @@ export default function AlbumCullPage() {
   if (!supported) {
     return (
       <div className="max-w-2xl">
-        <div className="rounded-md border border-[#805d00] bg-[#4a3600] px-3 py-2 text-sm text-[#ffb95e]">
+        <div className="rounded-md border border-amber-500/30 bg-amber-950/60 px-3 py-2 text-sm text-amber-300">
           {FILE_SYSTEM_ACCESS_UNSUPPORTED_MESSAGE}
         </div>
         <Link
           to={`/admin/albums/${albumId}`}
-          className="mt-3 inline-block text-sm text-[#c1c6d4] hover:text-[#e5e2e1]"
+          className="mt-3 inline-block text-sm text-zinc-400 hover:text-zinc-100"
         >
           ← Quay lại album
         </Link>
@@ -1266,18 +1266,18 @@ export default function AlbumCullPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="flex items-end justify-between border-b border-[#414752] pb-[25px]">
+      <div className="flex items-end justify-between border-b border-white/10 pb-[25px]">
         <div>
-          <h1 className="text-[32px] font-semibold tracking-[-0.32px] text-[#e5e2e1]">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-zinc-100">
             Chế độ phân cảnh
           </h1>
-          <p className="mt-1 text-base text-[#c1c6d4]">
+          <p className="mt-1 text-base text-zinc-400">
             {album ? `${album.name} — ` : ""}Duyệt và gộp ảnh theo thời gian thực.
           </p>
         </div>
         <Link
           to={`/admin/albums/${albumId}`}
-          className="text-sm text-[#c1c6d4] hover:text-[#e5e2e1]"
+          className="text-sm text-zinc-400 hover:text-zinc-100"
         >
           ← Quay lại album
         </Link>
@@ -1289,9 +1289,9 @@ export default function AlbumCullPage() {
             type="button"
             onClick={handlePickFolder}
             disabled={isScanning}
-            className="rounded-[4px] bg-[#5a9cff] px-4 py-2 text-sm font-medium text-[#003369] hover:bg-[#4a8cef] disabled:opacity-50"
+            className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-50"
           >
-            {isScanning ? "Đang quét..." : "Chọn thư mục ảnh gốc trên máy"}
+            {isScanning ? "Đang quét…" : "Chọn thư mục ảnh gốc trên máy"}
           </button>
           {scanError && (
             <p className="mt-2 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
@@ -1303,7 +1303,7 @@ export default function AlbumCullPage() {
 
       {scanResult && items.length === 0 && !isRunning && (
         <div className="mt-6 flex items-center gap-3">
-          <span className="text-sm text-[#c1c6d4]">
+          <span className="text-sm text-zinc-400">
             "{scanResult.folderName}":{" "}
             {scanResult.files.filter((f) => f.kind === "jpg").length} ảnh JPG
             tìm thấy
@@ -1311,14 +1311,14 @@ export default function AlbumCullPage() {
           <button
             type="button"
             onClick={handleAnalyze}
-            className="rounded-[4px] bg-[#5a9cff] px-4 py-2 text-sm font-medium text-[#003369] hover:bg-[#4a8cef]"
+            className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400"
           >
             Bắt đầu phân tích
           </button>
           <button
             type="button"
             onClick={handlePickFolder}
-            className="text-sm text-[#c1c6d4] hover:text-[#e5e2e1]"
+            className="text-sm text-zinc-400 hover:text-zinc-100"
           >
             Chọn thư mục khác
           </button>
@@ -1332,28 +1332,28 @@ export default function AlbumCullPage() {
       )}
 
       {isRunning && progress && (
-        <div className="mt-4 rounded-[4px] border border-[#414752] bg-[#1c1b1b] p-3 text-sm">
+        <div className="mt-4 rounded-lg border border-white/10 bg-zinc-900 p-3 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-[#e5e2e1]">
+            <span className="text-zinc-100">
               Đang phân tích {progress.processed}/{progress.total}:{" "}
               {progress.currentFileName}
             </span>
             <div className="flex items-center gap-3">
-              <span className="font-mono text-xs tracking-[0.6px] text-[#c1c6d4]">
+              <span className="font-mono text-xs tracking-wider text-zinc-400">
                 {progress.imagesPerSecond.toFixed(2)} ảnh/giây
               </span>
               <button
                 type="button"
                 onClick={handleStopAnalyze}
-                className="rounded-[4px] border border-[#6b2e2e] px-2 py-1 text-xs font-medium text-[#ffb4ab] hover:bg-red-950/50"
+                className="rounded-lg border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-300 hover:bg-red-950/50"
               >
                 Dừng
               </button>
             </div>
           </div>
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#2a2a2a]">
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
             <div
-              className="h-full rounded-full bg-[#5a9cff] transition-all"
+              className="h-full rounded-full bg-indigo-500 transition"
               style={{
                 width: `${(progress.processed / progress.total) * 100}%`,
               }}
@@ -1363,16 +1363,16 @@ export default function AlbumCullPage() {
       )}
 
       {items.length > 0 && (
-        <div className="mt-4 rounded-lg border border-[#414752] bg-[#131313] p-4">
+        <div className="mt-4 rounded-lg border border-white/10 bg-zinc-950 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs">
               <button
                 type="button"
                 onClick={() => setViewMode("flat")}
-                className={`rounded-full border px-3 py-1 font-mono tracking-[0.6px] ${
+                className={`rounded-full border px-3 py-1 font-mono tracking-wider ${
                   viewMode === "flat"
-                    ? "border-white bg-white text-[#131313]"
-                    : "border-[#414752] text-[#c1c6d4] hover:bg-[#2a2a2a]"
+                    ? "border-white bg-white text-zinc-950"
+                    : "border-white/10 text-zinc-400 hover:bg-zinc-800"
                 }`}
               >
                 Lưới phẳng
@@ -1380,10 +1380,10 @@ export default function AlbumCullPage() {
               <button
                 type="button"
                 onClick={() => setViewMode("scenes")}
-                className={`rounded-full border px-3 py-1 font-mono tracking-[0.6px] ${
+                className={`rounded-full border px-3 py-1 font-mono tracking-wider ${
                   viewMode === "scenes"
-                    ? "border-white bg-white text-[#131313]"
-                    : "border-[#414752] text-[#c1c6d4] hover:bg-[#2a2a2a]"
+                    ? "border-white bg-white text-zinc-950"
+                    : "border-white/10 text-zinc-400 hover:bg-zinc-800"
                 }`}
               >
                 Theo buổi chụp ({scenes.length})
@@ -1402,10 +1402,10 @@ export default function AlbumCullPage() {
                   key={option.value}
                   type="button"
                   onClick={() => selectDecisionFilter(option.value)}
-                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono tracking-[0.6px] ${
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono tracking-wider ${
                     decisionFilter === option.value
-                      ? "border-white bg-white text-[#131313]"
-                      : "border-[#414752] text-[#c1c6d4] hover:bg-[#2a2a2a]"
+                      ? "border-white bg-white text-zinc-950"
+                      : "border-white/10 text-zinc-400 hover:bg-zinc-800"
                   }`}
                 >
                   {option.dot && <span className={`h-2 w-2 rounded-full ${option.dot}`} />}
@@ -1416,7 +1416,7 @@ export default function AlbumCullPage() {
           </div>
 
           {decisionFilter !== "all" && (
-            <p className="mt-2 font-mono text-[11px] tracking-[0.6px] text-[#8b919e]">
+            <p className="mt-2 font-mono text-[11px] tracking-wider text-zinc-500">
               Đang hiện {displayOrderItems.length} ảnh. Ảnh đổi màu khi đang lọc vẫn hiện tới khi
               chọn lại bộ lọc.
             </p>
@@ -1445,11 +1445,11 @@ export default function AlbumCullPage() {
                 >
                   {row.kind === "sceneHeader" && (
                     <div className="flex items-center gap-4 pb-2 pt-4 first:pt-0">
-                      <h3 className="text-xl font-semibold text-[#e5e2e1]">
+                      <h3 className="text-xl font-semibold text-zinc-100">
                         Buổi {row.scene.sceneId + 1} —{" "}
                         {formatTimeRange(row.scene.startMs, row.scene.endMs)}
                       </h3>
-                      <span className="border border-[#414752] bg-[#201f1f] px-[9px] py-[5px] font-mono text-xs tracking-[0.6px] text-[#c1c6d4]">
+                      <span className="border border-white/10 bg-zinc-900 px-[9px] py-[5px] font-mono text-xs tracking-wider text-zinc-400">
                         {row.scene.items.length} ảnh
                       </span>
                     </div>
@@ -1460,7 +1460,7 @@ export default function AlbumCullPage() {
                     </div>
                   )}
                   {row.kind === "burstExpanded" && (
-                    <div className="mb-4 rounded-lg border border-[#414752] bg-[#1c1b1b] p-3">
+                    <div className="mb-4 rounded-lg border border-white/10 bg-zinc-900 p-3">
                       <div className="flex flex-wrap gap-4">
                         {row.burst.items.map((it) => (
                           <div
@@ -1478,14 +1478,14 @@ export default function AlbumCullPage() {
                         <button
                           type="button"
                           onClick={() => toggleBurst(row.burst.burstId)}
-                          className="font-mono tracking-[0.6px] text-[#c1c6d4] hover:text-[#e5e2e1]"
+                          className="font-mono tracking-wider text-zinc-400 hover:text-zinc-100"
                         >
                           Thu gọn loạt này
                         </button>
                         <button
                           type="button"
                           onClick={() => rejectRestOfBurst(row.burst)}
-                          className="font-mono tracking-[0.6px] text-[#ffb4ab] hover:text-red-300"
+                          className="font-mono tracking-wider text-rose-300 hover:text-red-300"
                         >
                           Loại {row.burst.items.length - 1} ảnh còn lại (giữ
                           đại diện ★)
@@ -1498,11 +1498,11 @@ export default function AlbumCullPage() {
             })}
           </div>
 
-          <div className="mt-6 rounded-[4px] border border-[#414752] bg-[#1c1b1b] p-4">
-            <h3 className="text-sm font-semibold text-[#e5e2e1]">
+          <div className="mt-6 rounded-lg border border-white/10 bg-zinc-900 p-4">
+            <h3 className="text-sm font-semibold text-zinc-100">
               Hành động cuối trên file gốc trên máy (tuỳ chọn)
             </h3>
-            <p className="mt-1 text-xs text-[#c1c6d4]">
+            <p className="mt-1 text-xs text-zinc-400">
               Áp dụng cho cả cặp RAW+JPG theo quyết định giữ/loại ở trên. Có
               thể bỏ qua và bấm thẳng "Tiếp tục upload" bên dưới nếu không cần
               đụng tới thư mục gốc.
@@ -1514,7 +1514,7 @@ export default function AlbumCullPage() {
                 disabled={
                   keptPairs.length === 0 || localAction.kind === "running"
                 }
-                className="rounded-[4px] border border-[#414752] px-3 py-1.5 text-sm font-medium text-[#e5e2e1] hover:bg-[#2a2a2a] disabled:opacity-50"
+                className="rounded-lg border border-white/10 px-3 py-1.5 text-sm font-medium text-zinc-100 hover:bg-zinc-800 disabled:opacity-50"
               >
                 Sao chép {keptPairs.length} cặp ảnh "giữ" sang thư mục mới
               </button>
@@ -1524,20 +1524,20 @@ export default function AlbumCullPage() {
                 disabled={
                   rejectedPairs.length === 0 || localAction.kind === "running"
                 }
-                className="rounded-[4px] border border-[#6b2e2e] px-3 py-1.5 text-sm font-medium text-[#ffb4ab] hover:bg-red-950/50 disabled:opacity-50"
+                className="rounded-lg border border-rose-500/30 px-3 py-1.5 text-sm font-medium text-rose-300 hover:bg-red-950/50 disabled:opacity-50"
               >
                 Xoá {rejectedPairs.length} cặp ảnh "loại" khỏi thư mục gốc
               </button>
             </div>
 
             {localAction.kind === "running" && (
-              <p className="mt-3 text-sm text-[#c1c6d4]">
+              <p className="mt-3 text-sm text-zinc-400">
                 {localAction.action === "copy" ? "Đang sao chép" : "Đang xoá"}{" "}
                 {localAction.done}/{localAction.total} file...
               </p>
             )}
             {localAction.kind === "done" && (
-              <p className="mt-3 rounded-md bg-[#1a3d24] px-3 py-2 text-sm text-[#86e8a8]">
+              <p className="mt-3 rounded-md bg-emerald-950/60 px-3 py-2 text-sm text-emerald-300">
                 {localAction.message}
               </p>
             )}
@@ -1548,8 +1548,8 @@ export default function AlbumCullPage() {
             )}
           </div>
 
-          <div className="sticky bottom-0 mt-6 flex items-center justify-between rounded-[4px] border border-[#414752] bg-[#0e0e0e]/95 px-4 py-3 text-sm shadow-md backdrop-blur">
-            <span className="font-mono tracking-[0.6px] text-[#c1c6d4]">
+          <div className="sticky bottom-0 mt-6 flex items-center justify-between rounded-lg border border-white/10 bg-zinc-950/95 px-4 py-3 text-sm shadow-md backdrop-blur">
+            <span className="font-mono tracking-wider text-zinc-400">
               {counts.total} ảnh · Giữ {counts.keep} · Xem lại {counts.review} ·
               Loại {counts.reject}
             </span>
@@ -1557,7 +1557,7 @@ export default function AlbumCullPage() {
               type="button"
               onClick={handleContinueToUpload}
               disabled={counts.keep === 0}
-              className="rounded-[4px] bg-[#5a9cff] px-4 py-2 text-sm font-medium text-[#003369] hover:bg-[#4a8cef] disabled:opacity-50"
+              className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-50"
             >
               Tiếp tục upload {counts.keep} ảnh đã giữ
             </button>
@@ -1676,7 +1676,7 @@ export default function AlbumCullPage() {
                   type="button"
                   onClick={() => moveTo(reviewIndex! - 1, -1)}
                   disabled={reviewIndex === 0}
-                  className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 text-white shadow-xl backdrop-blur-md transition-all hover:bg-zinc-800 disabled:opacity-30 disabled:pointer-events-none"
+                  className="absolute left-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 text-white shadow-xl backdrop-blur-md transition hover:bg-zinc-800 disabled:opacity-30 disabled:pointer-events-none"
                   title="Ảnh trước (A hoặc Phím mũi tên trái)"
                 >
                   <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1687,7 +1687,7 @@ export default function AlbumCullPage() {
                   type="button"
                   onClick={() => moveTo(reviewIndex! + 1, 1)}
                   disabled={reviewIndex === displayOrderItems.length - 1}
-                  className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 text-white shadow-xl backdrop-blur-md transition-all hover:bg-zinc-800 disabled:opacity-30 disabled:pointer-events-none"
+                  className="absolute right-4 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/70 text-white shadow-xl backdrop-blur-md transition hover:bg-zinc-800 disabled:opacity-30 disabled:pointer-events-none"
                   title="Ảnh tiếp theo (D hoặc Phím mũi tên phải)"
                 >
                   <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1845,7 +1845,7 @@ export default function AlbumCullPage() {
                       ref={isActive ? activeThumbRef : undefined}
                       type="button"
                       onClick={() => setReviewIndex(idx)}
-                      className={`relative aspect-[3/2] h-14 shrink-0 overflow-hidden rounded-lg border transition-all ${
+                      className={`relative aspect-[3/2] h-14 shrink-0 overflow-hidden rounded-lg border transition ${
                         isActive
                           ? "border-2 border-indigo-500 ring-2 ring-indigo-500/30 opacity-100 scale-105"
                           : "border-white/10 opacity-60 hover:opacity-100"
@@ -1861,7 +1861,7 @@ export default function AlbumCullPage() {
                         />
                       )}
                       {isActive && (
-                        <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-600 text-[9px] text-white">
+                        <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-indigo-600 text-[10px] text-white">
                           ✓
                         </span>
                       )}

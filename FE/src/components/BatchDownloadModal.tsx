@@ -218,7 +218,7 @@ export default function BatchDownloadModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-t-2xl border border-[#2a2a2a] bg-[#131313] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] text-[#e5e2e1] shadow-2xl sm:rounded-2xl"
+        className="w-full max-w-md rounded-t-2xl border border-white/5 bg-zinc-950 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] text-zinc-100 shadow-2xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-4">
@@ -226,7 +226,7 @@ export default function BatchDownloadModal({
             <h2 id="batch-download-title" className="text-lg font-semibold">
               Lưu ảnh vào điện thoại
             </h2>
-            <p className="mt-1 text-sm text-[#a8a29e]">
+            <p className="mt-1 text-sm text-zinc-400">
               {selectedPhotos.length} ảnh · {QUALITY_LABEL[quality]}
             </p>
           </div>
@@ -234,27 +234,27 @@ export default function BatchDownloadModal({
             type="button"
             onClick={onClose}
             aria-label="Đóng"
-            className="rounded-full p-2 text-[#a8a29e] hover:bg-white/5 hover:text-white"
+            className="rounded-full p-2 text-zinc-400 hover:bg-white/5 hover:text-white"
           >
             ✕
           </button>
         </div>
 
         {selectedPhotos.length === 0 ? (
-          <p className="text-sm text-[#a8a29e]">Chưa có ảnh hoàn thiện nào để tải.</p>
+          <p className="text-sm text-zinc-400">Chưa có ảnh hoàn thiện nào để tải.</p>
         ) : !shareSupported ? (
           <ZipFallback zipFallbackUrl={zipFallbackUrl} />
         ) : status === "done" ? (
           <div className="py-4 text-center">
             <p className="text-3xl">✓</p>
-            <p className="mt-2 font-medium text-[#86e8a8]">
+            <p className="mt-2 font-medium text-emerald-300">
               Đã lưu xong {totalBatches} nhóm ({selectedPhotos.length} ảnh)
             </p>
-            <p className="mt-1 text-sm text-[#a8a29e]">Ảnh nằm trong ứng dụng Ảnh / Thư viện.</p>
+            <p className="mt-1 text-sm text-zinc-400">Ảnh nằm trong ứng dụng Ảnh / Thư viện.</p>
             <button
               type="button"
               onClick={onClose}
-              className="mt-5 w-full rounded-xl bg-[#a9c7ff] py-3 font-semibold text-[#0b1b33]"
+              className="mt-5 w-full rounded-xl bg-indigo-500 py-3 font-semibold text-white"
             >
               Đóng
             </button>
@@ -262,14 +262,14 @@ export default function BatchDownloadModal({
         ) : (
           <>
             {onQualityChange && !started && (
-              <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-[#1f1f1f] p-1 text-sm">
+              <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-zinc-900 p-1 text-sm">
                 {(["original", "optimized"] as const).map((q) => (
                   <button
                     key={q}
                     type="button"
                     onClick={() => onQualityChange(q)}
                     className={`rounded-lg py-2 ${
-                      quality === q ? "bg-[#2e3a4d] font-semibold text-white" : "text-[#a8a29e]"
+                      quality === q ? "bg-indigo-500/15 font-semibold text-white" : "text-zinc-400"
                     }`}
                   >
                     {QUALITY_LABEL[q]}
@@ -279,7 +279,7 @@ export default function BatchDownloadModal({
             )}
 
             {totalBatches > 1 && (
-              <p className="mb-4 rounded-xl bg-[#1c2433] p-3 text-sm leading-relaxed text-[#c8d6ee]">
+              <p className="mb-4 rounded-xl bg-indigo-950/60 p-3 text-sm leading-relaxed text-indigo-200">
                 Do số lượng ảnh lớn, ảnh sẽ được chia thành <b>{totalBatches} lượt tải</b>. Quý
                 khách vui lòng nhấn nút Tải về cho mỗi lượt.
               </p>
@@ -293,10 +293,10 @@ export default function BatchDownloadModal({
                     key={i}
                     className={`h-1.5 flex-1 rounded-full ${
                       completedBatches.includes(i)
-                        ? "bg-[#86e8a8]"
+                        ? "bg-emerald-400"
                         : i === currentBatchIndex
-                          ? "bg-[#a9c7ff]"
-                          : "bg-[#2a2a2a]"
+                          ? "bg-indigo-500"
+                          : "bg-zinc-800"
                     }`}
                   />
                 ))}
@@ -307,31 +307,31 @@ export default function BatchDownloadModal({
               <span className="font-medium">
                 Nhóm {currentBatchIndex + 1}/{totalBatches}
               </span>
-              <span className="font-mono text-[#a8a29e]">
+              <span className="font-mono text-zinc-400">
                 Đã chuẩn bị {loadedCount}/{currentBatch.length} ảnh
               </span>
             </div>
             <div
-              className="h-2 overflow-hidden rounded-full bg-[#2a2a2a]"
+              className="h-2 overflow-hidden rounded-full bg-zinc-800"
               role="progressbar"
               aria-valuemin={0}
               aria-valuemax={currentBatch.length}
               aria-valuenow={loadedCount}
             >
               <div
-                className="h-full rounded-full bg-[#a9c7ff] transition-[width] duration-300 ease-out"
+                className="h-full rounded-full bg-indigo-500 transition-[width] duration-300 ease-out"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
 
             {status === "preparing" && (
-              <p className="mt-3 text-xs text-[#d6b56d]">
+              <p className="mt-3 text-xs text-amber-300">
                 Vui lòng không tắt màn hình hoặc chuyển ứng dụng trong lúc đang chuẩn bị ảnh.
               </p>
             )}
 
             {status === "partial_error" && (
-              <div className="mt-3 rounded-xl border border-[#5c2b2b] bg-[#2a1515] p-3 text-sm text-[#f2b8b5]">
+              <div className="mt-3 rounded-xl border border-rose-500/30 bg-rose-950/60 p-3 text-sm text-rose-300">
                 <p>
                   Không tải được {failures.length} ảnh
                   {failures.length <= 3 && `: ${failures.map((f) => f.filename).join(", ")}`}.
@@ -340,7 +340,7 @@ export default function BatchDownloadModal({
                   <button
                     type="button"
                     onClick={() => prepareBatch(currentBatchIndex, true)}
-                    className="rounded-lg border border-[#f2b8b5]/40 px-3 py-1.5 font-medium"
+                    className="rounded-lg border border-rose-300/40 px-3 py-1.5 font-medium"
                   >
                     Thử lại
                   </button>
@@ -348,7 +348,7 @@ export default function BatchDownloadModal({
                     <button
                       type="button"
                       onClick={() => handleShare(true)}
-                      className="rounded-lg px-3 py-1.5 text-[#e5e2e1] underline"
+                      className="rounded-lg px-3 py-1.5 text-zinc-100 underline"
                     >
                       Bỏ qua, lưu {loadedCount} ảnh đã tải
                     </button>
@@ -357,13 +357,13 @@ export default function BatchDownloadModal({
               </div>
             )}
 
-            {notice && <p className="mt-3 text-sm text-[#86e8a8]">{notice}</p>}
+            {notice && <p className="mt-3 text-sm text-emerald-300">{notice}</p>}
 
             <button
               type="button"
               onClick={() => handleShare()}
               disabled={status !== "ready"}
-              className="mt-5 w-full rounded-xl bg-[#a9c7ff] py-3.5 text-base font-semibold text-[#0b1b33] transition-opacity disabled:opacity-40"
+              className="mt-5 w-full rounded-xl bg-indigo-500 py-3.5 text-base font-semibold text-white transition-opacity disabled:opacity-40"
             >
               {status === "preparing"
                 ? `Đang chuẩn bị nhóm ${currentBatchIndex + 1}…`
@@ -371,7 +371,7 @@ export default function BatchDownloadModal({
                   ? "Đang mở bảng lưu ảnh…"
                   : `Tải ${currentBatch.length} ảnh nhóm ${currentBatchIndex + 1}`}
             </button>
-            <p className="mt-2 text-center text-xs text-[#78716c]">
+            <p className="mt-2 text-center text-xs text-zinc-500">
               Trong bảng chia sẻ, chọn “Lưu {currentBatch.length} hình ảnh” (iPhone) hoặc “Lưu vào
               thiết bị” (Android).
             </p>
@@ -385,14 +385,14 @@ export default function BatchDownloadModal({
 function ZipFallback({ zipFallbackUrl }: { zipFallbackUrl: string }) {
   return (
     <div>
-      <p className="text-sm leading-relaxed text-[#a8a29e]">
+      <p className="text-sm leading-relaxed text-zinc-400">
         Trình duyệt này chưa hỗ trợ lưu ảnh thẳng vào Thư viện. Bạn có thể tải toàn bộ ảnh dưới
         dạng file ZIP. Trên điện thoại, hãy mở bằng Safari (iPhone) hoặc Chrome (Android) để lưu
         ảnh trực tiếp.
       </p>
       <a
         href={zipFallbackUrl}
-        className="mt-5 block w-full rounded-xl bg-[#a9c7ff] py-3.5 text-center font-semibold text-[#0b1b33]"
+        className="mt-5 block w-full rounded-xl bg-indigo-500 py-3.5 text-center font-semibold text-white"
       >
         Tải file ZIP
       </a>

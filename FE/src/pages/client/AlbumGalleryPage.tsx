@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
+import { CameraIcon, ClockIcon, HeartIcon, ImagesIcon, SparklesIcon } from "../../components/Icons";
 import { useClientAlbum, useIsAlbumExpired } from "../../contexts/ClientAlbumContext";
 import PhotoAnnotationLightbox from "../../components/PhotoAnnotationLightbox";
 import PhotoCompareView from "../../components/PhotoCompareView";
@@ -255,34 +256,36 @@ export default function AlbumGalleryPage() {
   }
 
   if (!album) {
-    return <p className="text-sm text-[#c1c6d4]">Đang tải...</p>;
+    return <p className="text-sm text-zinc-400">Đang tải…</p>;
   }
 
   return (
     <div>
-      <h1 className="text-[32px] font-semibold tracking-[-0.32px] text-[#e5e2e1]">
+      <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
         {album.name}
       </h1>
-      <p className="mt-2 max-w-2xl text-base text-[#c1c6d4]">
+      <p className="mt-2 max-w-2xl text-base text-zinc-400">
         Duyệt qua tất cả các khoảnh khắc từ sự kiện. Sử dụng công cụ lọc để tìm kiếm dễ dàng hơn.
       </p>
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-[4px] border border-[#43474f] bg-[#1c1b1b] px-5 py-4">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-zinc-900/60 px-5 py-4 backdrop-blur-xl">
         <div>
-          <p className="flex items-center gap-2 text-sm font-semibold text-[#e5e2e1]">
-            🖼 Tổng quan sự kiện
+          <p className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            <ImagesIcon className="text-indigo-300" /> Tổng quan sự kiện
           </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-4 text-sm text-[#c1c6d4]">
-            <span>📷 {photos.length} Ảnh</span>
-            {lastUpdatedAt && <span>🕐 Cập nhật {formatRelativeTime(lastUpdatedAt)}</span>}
-            <span>❤️ Đã chọn: {selected.size}</span>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm tabular-nums text-zinc-400">
+            <span className="inline-flex items-center gap-1.5"><CameraIcon size={14} className="text-zinc-500" />{photos.length} ảnh</span>
+            {lastUpdatedAt && (
+              <span className="inline-flex items-center gap-1.5"><ClockIcon size={14} className="text-zinc-500" />Cập nhật {formatRelativeTime(lastUpdatedAt)}</span>
+            )}
+            <span className="inline-flex items-center gap-1.5"><HeartIcon size={14} className="text-rose-400" />Đã chọn {selected.size}</span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as FilterKey)}
-            className="rounded-[4px] border border-[#43474f] bg-[#131313] px-3 py-2 text-sm text-[#e5e2e1] focus:outline-none focus:ring-1 focus:ring-[#a9c7ff]"
+            className="rounded-lg border border-white/10 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
           >
             <option value="all">Tất cả ảnh</option>
             <option value="suggested">Ảnh gợi ý AI</option>
@@ -294,29 +297,29 @@ export default function AlbumGalleryPage() {
                 type="button"
                 onClick={openMobileDownload}
                 disabled={isLoadingDownloads}
-                className="rounded-[4px] border border-[#2d6a3f] bg-[#1a3d24] px-3 py-2 text-sm font-medium text-[#86e8a8] hover:bg-[#204d2c] disabled:opacity-60"
+                className="rounded-lg border border-emerald-500/30 bg-emerald-950/60 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-900/60 disabled:opacity-60"
               >
                 {isLoadingDownloads ? "Đang lấy danh sách…" : "Lưu ảnh hoàn thiện"}
               </button>
             ) : (
               <a
                 href={zipUrl}
-                className="rounded-[4px] border border-[#2d6a3f] bg-[#1a3d24] px-3 py-2 text-sm font-medium text-[#86e8a8] hover:bg-[#204d2c]"
+                className="rounded-lg border border-emerald-500/30 bg-emerald-950/60 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-900/60"
               >
                 Tải ZIP ảnh hoàn thiện
               </a>
             ))}
-          {downloadError && <span className="text-sm text-[#f2b8b5]">{downloadError}</span>}
+          {downloadError && <span className="text-sm text-rose-300">{downloadError}</span>}
           <button
             type="button"
             onClick={() => {
               setCompareMode((prev) => !prev);
               setCompareSelection([]);
             }}
-            className={`rounded-[4px] border px-3 py-2 text-sm font-medium ${
+            className={`rounded-lg border px-3 py-2 text-sm font-medium ${
               compareMode
-                ? "border-[#a9c7ff] bg-[#a9c7ff] text-white"
-                : "border-[#43474f] text-[#e5e2e1] hover:bg-[#2a2a2a]"
+                ? "border-indigo-500 bg-indigo-500 text-white"
+                : "border-white/10 text-zinc-100 hover:bg-zinc-800"
             }`}
           >
             {compareMode ? "Đang chọn ảnh để so sánh" : "So sánh 2 ảnh"}
@@ -325,14 +328,14 @@ export default function AlbumGalleryPage() {
       </div>
 
       {compareMode && compareSelection.length < 2 && (
-        <div className="mt-3 rounded-[4px] border border-[#43474f] bg-[#1c1b1b] px-3 py-2 text-sm text-[#c1c6d4]">
+        <div className="mt-3 rounded-lg border border-white/10 bg-zinc-900 px-3 py-2 text-sm text-zinc-400">
           Chọn 2 ảnh ({compareSelection.length}/2 đã chọn) — công cụ so sánh sẽ tự mở khi
           chọn đủ 2 ảnh.
         </div>
       )}
 
       {filteredPhotos.length === 0 ? (
-        <p className="mt-6 text-sm text-[#c1c6d4]">
+        <p className="mt-6 text-sm text-zinc-400">
           {showLikedOnly ? "Bạn chưa thả tim ảnh nào." : "Chưa có ảnh nào trong album."}
         </p>
       ) : (
@@ -364,7 +367,7 @@ export default function AlbumGalleryPage() {
                     <div
                       key={photo.id}
                       style={{ width: itemSize || undefined }}
-                      className="relative shrink-0 overflow-hidden rounded-[4px] border border-[#43474f] bg-[#1c1b1b]"
+                      className="relative shrink-0 overflow-hidden rounded-lg border border-white/10 bg-zinc-900"
                     >
                       <button
                         type="button"
@@ -382,11 +385,11 @@ export default function AlbumGalleryPage() {
 
                       {photo.burst_cluster_id &&
                         (photo.is_best_in_cluster ? (
-                          <span className="absolute left-2 top-2 rounded bg-[#4a3600]/90 px-1.5 py-0.5 text-[10px] font-medium text-[#ffddb8]">
-                            ✨ Gợi ý
+                          <span className="absolute left-2 top-2 rounded bg-amber-400/95 px-1.5 py-0.5 text-[10px] font-semibold text-amber-950">
+                            <span className="inline-flex items-center gap-1"><SparklesIcon size={10} />Gợi ý</span>
                           </span>
                         ) : (
-                          <span className="absolute left-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-[#e5e2e1]">
+                          <span className="absolute left-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-zinc-100">
                             Cụm ảnh giống
                           </span>
                         ))}
@@ -395,8 +398,8 @@ export default function AlbumGalleryPage() {
                         <span
                           className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold shadow ${
                             compareSelection.includes(photo.id)
-                              ? "bg-[#a9c7ff] text-white"
-                              : "bg-black/50 text-[#e5e2e1]"
+                              ? "bg-indigo-500 text-white"
+                              : "bg-black/50 text-zinc-100"
                           }`}
                         >
                           {compareSelection.includes(photo.id) ? "✓" : "+"}
@@ -411,7 +414,7 @@ export default function AlbumGalleryPage() {
                           className={`absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full text-lg shadow disabled:cursor-not-allowed disabled:opacity-50 ${
                             selected.has(photo.id)
                               ? "bg-red-500 text-white"
-                              : "bg-black/50 text-[#e5e2e1]"
+                              : "bg-black/50 text-zinc-100"
                           }`}
                         >
                           {selected.has(photo.id) ? "♥" : "♡"}
@@ -426,7 +429,7 @@ export default function AlbumGalleryPage() {
 
           {hasMore && (
             <div ref={setSentinelNode} className="mt-6 flex justify-center py-4">
-              <span className="text-sm text-[#c1c6d4]">Đang tải thêm ảnh...</span>
+              <span className="text-sm text-zinc-400">Đang tải thêm ảnh…</span>
             </div>
           )}
         </>

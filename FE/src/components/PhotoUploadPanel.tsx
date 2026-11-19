@@ -73,9 +73,9 @@ const ACTIVE_STATUSES: EntryStatus[] = ["queued", "preparing", "uploading", "pro
 
 const STATUS_LABEL: Record<EntryStatus, string> = {
   queued: "Chờ",
-  preparing: "Đang nén...",
+  preparing: "Đang nén…",
   uploading: "",
-  processing: "Đang lưu lên Drive...",
+  processing: "Đang lưu lên Drive…",
   done: "Hoàn tất",
   error: "Lỗi",
 };
@@ -328,9 +328,9 @@ function PhotoUploadPanel(
       />
 
       {total > 0 && (
-        <div className="mt-4 rounded-[4px] border border-[#43474f] bg-[#1c1b1b] p-3">
+        <div className="mt-4 rounded-lg border border-white/10 bg-zinc-900 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span className="text-[#e5e2e1]">
+            <span className="text-zinc-100">
               {isActive ? "Đang tải ảnh lên Drive" : "Đã tải xong"} · {doneCount}/{total} ảnh
               {failed.length > 0 && <span className="text-red-400"> · {failed.length} lỗi</span>}
             </span>
@@ -339,7 +339,7 @@ function PhotoUploadPanel(
                 <button
                   type="button"
                   onClick={retryFailed}
-                  className="rounded-[4px] border border-[#43474f] px-2 py-1 text-xs text-[#e5e2e1] hover:bg-[#2a2a2a]"
+                  className="rounded-lg border border-white/10 px-2 py-1 text-xs text-zinc-100 hover:bg-zinc-800"
                 >
                   Thử lại {failed.length} ảnh lỗi
                 </button>
@@ -348,16 +348,16 @@ function PhotoUploadPanel(
                 <button
                   type="button"
                   onClick={clearFinished}
-                  className="rounded-[4px] border border-[#43474f] px-2 py-1 text-xs text-[#c1c6d4] hover:bg-[#2a2a2a]"
+                  className="rounded-lg border border-white/10 px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
                 >
                   Ẩn
                 </button>
               )}
             </div>
           </div>
-          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#2a2a2a]">
+          <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
             <div
-              className="h-full rounded-full bg-[#a9c7ff] transition-all"
+              className="h-full rounded-full bg-indigo-500 transition"
               style={{ width: `${overallPercent}%` }}
             />
           </div>
@@ -365,10 +365,10 @@ function PhotoUploadPanel(
           {(inFlight.length > 0 || failed.length > 0) && (
             <ul className="mt-3 space-y-2">
               {[...inFlight, ...failed].map((entry) => (
-                <li key={entry.id} className="rounded-[4px] border border-[#43474f] bg-[#161515] p-2">
+                <li key={entry.id} className="rounded-lg border border-white/10 bg-zinc-950 p-2">
                   <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="truncate text-[#e5e2e1]">{entry.item.file.name}</span>
-                    <span className="flex shrink-0 items-center gap-2 text-[#c1c6d4]">
+                    <span className="truncate text-zinc-100">{entry.item.file.name}</span>
+                    <span className="flex shrink-0 items-center gap-2 text-zinc-400">
                       {entry.status === "uploading" ? `${entry.progress}%` : STATUS_LABEL[entry.status]}
                       {entry.status === "error" && (
                         <button
@@ -377,7 +377,7 @@ function PhotoUploadPanel(
                             retryEntry(entry);
                             pump();
                           }}
-                          className="rounded-[4px] border border-[#43474f] px-1.5 py-0.5 text-[11px] text-[#e5e2e1] hover:bg-[#2a2a2a]"
+                          className="rounded-lg border border-white/10 px-1.5 py-0.5 text-[11px] text-zinc-100 hover:bg-zinc-800"
                         >
                           Thử lại
                         </button>
@@ -385,8 +385,8 @@ function PhotoUploadPanel(
                     </span>
                   </div>
                   {entry.status === "uploading" && (
-                    <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-[#2a2a2a]">
-                      <div className="h-full rounded-full bg-[#a9c7ff]" style={{ width: `${entry.progress}%` }} />
+                    <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-zinc-800">
+                      <div className="h-full rounded-full bg-indigo-500" style={{ width: `${entry.progress}%` }} />
                     </div>
                   )}
                   {entry.error && <p className="mt-1 text-[11px] text-red-400">{entry.error}</p>}
@@ -395,7 +395,7 @@ function PhotoUploadPanel(
             </ul>
           )}
           {waitingCount > 0 && (
-            <p className="mt-2 text-[11px] text-[#8b919e]">{waitingCount} ảnh đang chờ tới lượt</p>
+            <p className="mt-2 text-[11px] text-zinc-500">{waitingCount} ảnh đang chờ tới lượt</p>
           )}
         </div>
       )}

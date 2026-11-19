@@ -81,7 +81,7 @@ export default function LoginPage() {
           <div className="mt-8 w-full">
             <a
               href={googleLoginUrl}
-              className="group flex w-full items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:bg-white/10 hover:border-white/25 hover:shadow-indigo-500/10 hover:-translate-y-0.5 active:translate-y-0"
+              className="group flex w-full items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-sm font-semibold text-white shadow-lg transition duration-200 hover:bg-white/10 hover:border-white/25 hover:shadow-indigo-500/10 hover:-translate-y-0.5 active:translate-y-0"
             >
               <img alt="" className="h-5 w-5 transition-transform group-hover:scale-110" src={googleIcon} />
               <span>Đăng nhập với Google</span>

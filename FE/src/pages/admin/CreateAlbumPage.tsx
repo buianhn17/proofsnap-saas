@@ -5,9 +5,10 @@ import { getErrorMessage } from "../../lib/errors";
 import { COMPRESSION_PRESETS } from "../../lib/compressionPresets";
 import { PIN_PATTERN } from "../../lib/validation";
 import type { Album } from "../../lib/types";
+import { useEscapeKey } from "../../lib/useEscapeKey";
 
 const inputClass =
-  "w-full rounded-xl border border-white/10 bg-zinc-900/80 px-4 py-3 text-sm text-white placeholder:text-zinc-500 transition-all focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 [color-scheme:dark]";
+  "w-full rounded-xl border border-white/10 bg-zinc-900/80 px-4 py-3 text-sm text-white placeholder:text-zinc-500 transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 [color-scheme:dark]";
 
 export default function CreateAlbumPage() {
   const navigate = useNavigate();
@@ -23,6 +24,7 @@ export default function CreateAlbumPage() {
   function handleClose() {
     navigate("/admin/albums");
   }
+  useEscapeKey(handleClose, !isSubmitting);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -60,7 +62,7 @@ export default function CreateAlbumPage() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in-up">
+    <div role="dialog" aria-modal="true" aria-label="Tạo album mới" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in-up">
       <div className="flex max-h-[90vh] w-full max-w-[620px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/80 backdrop-blur-2xl animate-scale-in">
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
@@ -95,10 +97,10 @@ export default function CreateAlbumPage() {
           <div className="grid grid-cols-1 gap-5 p-6 sm:grid-cols-2">
             {/* Album Name */}
             <div className="flex flex-col gap-1.5 sm:col-span-2">
-              <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+              <label htmlFor="album-name" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
                 Tên album <span className="text-rose-400">*</span>
               </label>
-              <input
+              <input id="album-name" name="name" autoComplete="off"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -111,7 +113,7 @@ export default function CreateAlbumPage() {
             {/* PIN Code */}
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                <label htmlFor="album-pin" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
                   Mã PIN bảo mật <span className="text-rose-400">*</span>
                 </label>
                 <span className="text-[11px] text-zinc-500">4-12 số</span>
@@ -127,7 +129,7 @@ export default function CreateAlbumPage() {
                   <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
                   <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                 </svg>
-                <input
+                <input id="album-pin" name="pin" autoComplete="off" spellCheck={false}
                   type="text"
                   inputMode="numeric"
                   value={pin}
@@ -140,10 +142,10 @@ export default function CreateAlbumPage() {
 
             {/* Max Selectable Photos */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+              <label htmlFor="album-max" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
                 Số ảnh chọn tối đa
               </label>
-              <input
+              <input id="album-max" name="max_selectable" inputMode="numeric"
                 type="number"
                 min={1}
                 value={maxSelectablePhotos}
@@ -155,10 +157,10 @@ export default function CreateAlbumPage() {
 
             {/* Deadline */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+              <label htmlFor="album-deadline" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
                 Hạn chót chọn ảnh
               </label>
-              <input
+              <input id="album-deadline" name="deadline"
                 type="date"
                 value={selectionDeadline}
                 onChange={(e) => setSelectionDeadline(e.target.value)}
@@ -168,11 +170,11 @@ export default function CreateAlbumPage() {
 
             {/* Compression Preset */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+              <label htmlFor="album-preset" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
                 Mức nén ảnh preview
               </label>
               <div className="relative">
-                <select
+                <select id="album-preset" name="preset"
                   value={compressionPresetId}
                   onChange={(e) => setCompressionPresetId(Number(e.target.value))}
                   className={`${inputClass} appearance-none pr-10`}
@@ -239,12 +241,12 @@ export default function CreateAlbumPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-50"
             >
               {isSubmitting ? (
                 <>
                   <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  <span>Đang tạo...</span>
+                  <span>Đang tạo…</span>
                 </>
               ) : (
                 <span>Tạo album ngay</span>
