@@ -11,6 +11,7 @@ const driveRoute = require("./routes/drive");
 const albumsRoute = require("./routes/albums");
 const photosRoute = require("./routes/photos");
 const clientRoute = require("./routes/client");
+const studioRoute = require("./routes/studio");
 const { notFoundHandler, errorHandler } = require("./middlewares/errorMiddleware");
 
 function createApp() {
@@ -33,6 +34,7 @@ function createApp() {
   app.use("/api/albums", albumsRoute);
   app.use("/api/albums/:albumId/photos", photosRoute);
   app.use("/api/public/albums", clientRoute);
+  app.use("/api/studio", studioRoute);
 
   app.get("/", (req, res) => {
     res.json({ message: "LensProof backend đang chạy" });

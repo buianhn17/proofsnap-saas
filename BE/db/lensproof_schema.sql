@@ -304,6 +304,71 @@ CREATE TABLE marketing_captions (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ------------------------------------------------------------
+-- 18. SHOW KỶ YẾU & BÀN GIAO EKIP (migration 009, 010)
+--     Chủ Studio tạo show cho 1 lớp, thợ ảnh/thợ quay vào bằng invite_code
+--     rồi nộp link Drive bàn giao. Hạn = shoot_end_time + 24h.
+-- ------------------------------------------------------------
+CREATE TABLE studio_shows (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    studio_user_id  UUID NOT NULL REFERENCES photographers(id) ON DELETE CASCADE,
+    invite_code     TEXT NOT NULL UNIQUE,
+    shoot_date      DATE NOT NULL,
+    shoot_end_time  TIMESTAMPTZ NOT NULL,               -- mốc tính hạn bàn giao 24h
+    class_name      TEXT NOT NULL CHECK (char_length(class_name) BETWEEN 1 AND 40),
+    school_name     TEXT NOT NULL CHECK (char_length(school_name) BETWEEN 1 AND 160),
+    status          TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'completed', 'archived')),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_studio_shows_owner ON studio_shows (studio_user_id, shoot_date DESC);
+
+-- Thành viên show: thợ chụp/quay ('crew') hoặc hậu kỳ ('editor') — vào bằng cùng invite_code.
+CREATE TABLE show_members (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    show_id    UUID NOT NULL REFERENCES studio_shows(id) ON DELETE CASCADE,
+    user_id    UUID NOT NULL REFERENCES photographers(id) ON DELETE CASCADE,
+    role_type  TEXT NOT NULL DEFAULT 'crew' CHECK (role_type IN ('crew', 'editor')),
+    joined_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_show_members_show_user UNIQUE (show_id, user_id)
+);
+CREATE INDEX idx_show_members_user ON show_members (user_id);
+
+CREATE TABLE show_submissions (
+    id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    show_id                UUID NOT NULL REFERENCES studio_shows(id) ON DELETE CASCADE,
+    crew_user_id           UUID NOT NULL REFERENCES photographers(id) ON DELETE CASCADE,
+    crew_name              TEXT NOT NULL CHECK (char_length(crew_name) BETWEEN 1 AND 80),
+    -- photo/video: thợ nộp file gốc · retouch: editor nộp ảnh đã hậu kỳ (migration 010)
+    crew_type              TEXT NOT NULL CHECK (crew_type IN ('photo', 'video', 'retouch')),
+    role_position          TEXT NOT NULL CHECK (char_length(role_position) BETWEEN 1 AND 40),
+    formatted_folder_name  TEXT NOT NULL,
+    drive_url              TEXT NOT NULL,
+    total_files            INTEGER NOT NULL CHECK (total_files > 0),   -- số ảnh / số clip / số ảnh đã chỉnh
+    raw_count              INTEGER NOT NULL DEFAULT 0 CHECK (raw_count >= 0),
+    jpg_count              INTEGER NOT NULL DEFAULT 0 CHECK (jpg_count >= 0),
+    video_count            INTEGER NOT NULL DEFAULT 0 CHECK (video_count >= 0),
+    -- { closed_eyes, blurry, overexposed, failed_fireworks }: số ảnh lỗi thợ đã lọc bỏ
+    culled_stats           JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(culled_stats) = 'object'),
+    has_valid_structure    BOOLEAN NOT NULL,             -- ảnh: 01 folder RAW nén + 01 folder JPG; quay: folder footage gốc
+    backup_committed_45d   BOOLEAN NOT NULL,
+    is_on_time_24h         BOOLEAN,                      -- submitted_at <= shoot_end_time + 24h; NULL với 'retouch'
+    status                 TEXT NOT NULL DEFAULT 'submitted'
+                           CHECK (status IN ('submitted', 'approved', 'rejected')),
+    studio_note            TEXT CHECK (studio_note IS NULL OR char_length(studio_note) <= 1000),
+    submitted_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reviewed_at            TIMESTAMPTZ,
+    CONSTRAINT uq_show_submission_role UNIQUE (show_id, crew_user_id, role_position),
+    CONSTRAINT fk_show_submission_member FOREIGN KEY (show_id, crew_user_id)
+        REFERENCES show_members (show_id, user_id) ON DELETE CASCADE,
+    CONSTRAINT chk_rejected_has_note CHECK (
+        status <> 'rejected' OR (studio_note IS NOT NULL AND btrim(studio_note) <> '')
+    ),
+    CONSTRAINT chk_on_time_only_for_raw CHECK ((crew_type = 'retouch') = (is_on_time_24h IS NULL)),
+    CONSTRAINT chk_backup_required_for_raw CHECK (crew_type = 'retouch' OR backup_committed_45d = true)
+);
+CREATE INDEX idx_show_submissions_show ON show_submissions (show_id, crew_type, submitted_at);
+CREATE INDEX idx_show_submissions_crew ON show_submissions (crew_user_id);
+
 -- ============================================================
 -- GHI CHÚ: cache ảnh đã watermark (mục 6.3) đặt ở Redis theo đúng
 -- đặc tả gốc (key dạng photo_id:client_id, có TTL), KHÔNG cần bảng
