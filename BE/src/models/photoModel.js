@@ -50,6 +50,7 @@ async function createPhoto({
   burstClusterId,
   isBestInCluster,
   clientUploadId,
+  sourceDriveFileId,
 }) {
   // face_index_status = 'pending': embedding khuôn mặt được trích nền sau khi trả lời upload
   // (faceIndexQueue.js).
@@ -57,8 +58,9 @@ async function createPhoto({
     `INSERT INTO photos (
       album_id, drive_file_id, original_base_filename, width, height,
       file_size_bytes, captured_at, sharpness_score, eye_status, culling_flag,
-      scene_id, burst_cluster_id, is_best_in_cluster, client_upload_id, face_index_status
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending')
+      scene_id, burst_cluster_id, is_best_in_cluster, client_upload_id, source_drive_file_id,
+      face_index_status
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'pending')
     RETURNING ${PHOTO_COLUMNS}`,
     [
       albumId,
@@ -75,9 +77,19 @@ async function createPhoto({
       burstClusterId ?? null,
       isBestInCluster ?? false,
       clientUploadId ?? null,
+      sourceDriveFileId ?? null,
     ]
   );
   return result.rows[0];
+}
+
+/** Id file Drive gốc của các ảnh đã nhập vào album — để nhập lại cùng link không tạo trùng. */
+async function listSourceDriveFileIds(albumId) {
+  const result = await pool.query(
+    "SELECT source_drive_file_id FROM photos WHERE album_id = $1 AND source_drive_file_id IS NOT NULL",
+    [albumId]
+  );
+  return result.rows.map((row) => row.source_drive_file_id);
 }
 
 // --- Hàng đợi trích embedding khuôn mặt (faceIndexQueue.js) ---
@@ -143,6 +155,7 @@ async function findSelectedInAlbum(albumId, photoId) {
 }
 
 module.exports = {
+  listSourceDriveFileIds,
   listByAlbumId,
   createPhoto,
   findByAlbumAndId,

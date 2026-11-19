@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -21,6 +22,10 @@ import PhotoUploadPanel, {
   type UploadQueueItem,
 } from "../../components/PhotoUploadPanel";
 import LocalFolderPicker from "../../components/LocalFolderPicker";
+import DriveImport from "../../components/DriveImport";
+import Breadcrumbs from "../../components/ui/Breadcrumbs";
+import PageSpinner from "../../components/ui/PageSpinner";
+import { getAlbumStatusBadge } from "../../lib/albumStatus";
 
 // Cùng thứ tự với BE (photoModel.js ALBUM_PHOTO_ORDER): theo giờ chụp, ảnh không có giờ chụp
 // xếp sau theo tên file.
@@ -122,13 +127,15 @@ export default function AlbumDetailPage() {
       );
   }, [albumId]);
 
-  useEffect(() => {
+  const loadPhotos = useCallback(() => {
     if (!albumId) return;
     api
       .get<{ photos: Photo[] }>(`/api/albums/${albumId}/photos`)
       .then(({ data }) => setPhotos(data.photos))
       .catch(() => {});
   }, [albumId]);
+  useEffect(loadPhotos, [loadPhotos]);
+  const [driveImportOpen, setDriveImportOpen] = useState(false);
 
   const filteredPhotos = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -279,20 +286,20 @@ export default function AlbumDetailPage() {
 
   if (error) {
     return (
-      <div className="rounded-2xl border border-rose-500/20 bg-rose-950/40 p-4 text-sm text-rose-300">
-        {error}
+      <div className="flex flex-col gap-4">
+        <Breadcrumbs items={[{ label: "Bộ sưu tập", to: "/admin/albums" }, { label: "Không tải được" }]} />
+        <div role="alert" className="rounded-2xl border border-rose-500/20 bg-rose-950/40 p-4 text-sm text-rose-300">
+          {error}
+        </div>
       </div>
     );
   }
 
   if (!album) {
-    return (
-      <div className="flex items-center justify-center p-12 text-sm text-zinc-400">
-        <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
-        Đang tải thông tin album...
-      </div>
-    );
+    return <PageSpinner label="Đang tải thông tin album…" fullHeight />;
   }
+
+  const statusBadge = getAlbumStatusBadge(album);
 
   const canUpload = album.status === "active" && !album.is_locked;
 
@@ -312,16 +319,7 @@ export default function AlbumDetailPage() {
 
       {/* Top Breadcrumbs & Back Link */}
       <div className="flex items-center justify-between">
-        <Link
-          to="/admin/albums"
-          className="group inline-flex items-center gap-2 text-xs font-medium text-zinc-400 transition-colors hover:text-white"
-        >
-          <svg className="h-4 w-4 transition-transform group-hover:-translate-x-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="19" y1="12" x2="5" y2="12" />
-            <polyline points="12 19 5 12 12 5" />
-          </svg>
-          <span>Quay lại danh sách album</span>
-        </Link>
+        <Breadcrumbs items={[{ label: "Bộ sưu tập", to: "/admin/albums" }, { label: album.name }]} />
 
         {/* Client Portal Link Button */}
         <button
@@ -341,21 +339,19 @@ export default function AlbumDetailPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-white/10 pb-6">
         <div>
           <div className="flex items-center gap-2.5">
+            <title>{`${album.name} · LensProof`}</title>
             <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
               {album.name}
             </h1>
             <span
-              className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wider ${
-                album.status === "active" && !album.is_locked
-                  ? "border border-emerald-500/30 bg-emerald-950/50 text-emerald-300"
-                  : "border border-white/10 bg-zinc-800 text-zinc-400"
-              }`}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[10px] font-semibold tracking-wider ${statusBadge.className}`}
             >
-              {album.status === "active" && !album.is_locked ? "Đang mở" : "Đã khóa"}
+              <span className={`size-1.5 rounded-full ${statusBadge.dot}`} aria-hidden="true" />
+              {statusBadge.label}
             </span>
           </div>
           <p className="mt-1 text-xs text-zinc-400">
-            {photos.length} ảnh trong album • Preset: {getPresetLabel(album.compression_preset_id)} • Hạn chót: {formatDateTime(album.selection_deadline)}
+            <span className="tabular-nums">{photos.length}</span> ảnh trong album • Preset: {getPresetLabel(album.compression_preset_id)} • Hạn chót: {formatDateTime(album.selection_deadline)}
           </p>
         </div>
 
@@ -398,8 +394,24 @@ export default function AlbumDetailPage() {
               <span>Tải ảnh lên</span>
             </button>
           )}
+          {canUpload && (
+            <button
+              type="button"
+              onClick={() => setDriveImportOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-900/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white"
+            >
+              <svg className="h-4 w-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+              <span>Nhập từ link Drive</span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Nhập ảnh từ link Google Drive công khai — tiến độ + dialog */}
+      <DriveImport albumId={album.id} open={driveImportOpen} onOpenChange={setDriveImportOpen} onPhotosChanged={loadPhotos} />
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-zinc-900/50 p-3 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
@@ -570,16 +582,25 @@ export default function AlbumDetailPage() {
           </div>
           <h3 className="mt-4 text-sm font-bold text-white">Chưa có ảnh nào trong album</h3>
           <p className="mt-1 max-w-sm text-xs text-zinc-400">
-            Hãy tải ảnh lên từ máy tính hoặc sử dụng công cụ lọc ảnh Culling AI bên dưới.
+            Tải ảnh lên từ máy tính, dán link thư mục Google Drive công khai, hoặc dùng công cụ lọc ảnh Culling AI bên dưới.
           </p>
           {canUpload && (
-            <button
-              type="button"
-              onClick={() => uploadPanelRef.current?.openFileDialog()}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 hover:bg-indigo-400"
-            >
-              Tải ảnh lên ngay
-            </button>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => uploadPanelRef.current?.openFileDialog()}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 border border-indigo-400/30 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-400 hover:to-indigo-500 transition"
+              >
+                Tải ảnh lên ngay
+              </button>
+              <button
+                type="button"
+                onClick={() => setDriveImportOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white"
+              >
+                Nhập từ link Google Drive
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -885,7 +906,7 @@ export default function AlbumDetailPage() {
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="rounded-xl bg-indigo-500 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 hover:bg-indigo-400 disabled:opacity-50"
+                  className="rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 border border-indigo-400/30 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-50 transition"
                 >
                   {isSaving ? "Đang lưu…" : "Lưu thay đổi"}
                 </button>

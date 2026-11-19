@@ -169,6 +169,46 @@ Nếu API Drive trả lỗi `DRIVE_SCOPE_REQUIRED`, hãy mở lại
 `http://localhost:3000/api/auth/google`, đăng nhập lại và chấp nhận quyền
 Google Drive để cấp lại scope cho refresh token hiện tại.
 
+## Bàn giao Show Kỷ Yếu (Bàn giao Ekip)
+
+Áp dụng lần lượt `009_studio_shows.sql` rồi `010_show_editors.sql`. API dưới
+`/api/studio` (tag **Studio Shows** trong Swagger), dùng chung tài khoản photographer:
+
+| Vai trò | Vào show bằng | Làm được |
+|---|---|---|
+| Chủ Studio (`studio_user_id`) | Tạo show | Xem mọi bài nộp, duyệt / yêu cầu sửa, đổi trạng thái, đổi mã mời, mời thành viên ra, xoá show |
+| Thợ (`crew`) | Mã mời | Nộp file gốc `photo` / `video` (link `drive.google.com`, cam kết backup 45 ngày, hạn 24h sau giờ kết thúc chụp) |
+| Editor (`editor`) | Mã mời | Xem link Drive + tên folder chuẩn của mọi thợ, nộp link ảnh đã hậu kỳ (`retouch`) |
+
+Trạng thái show: `open` (nhận bàn giao) → `completed` (đã chốt file gốc: không nhận
+thợ mới, vẫn nhận editor + ảnh hậu kỳ) → `archived`. Nhập sai mã mời bị chặn sau 10
+lần / 15 phút; nhập sai PIN album của khách cũng bị chặn sau 10 lần / 15 phút (Redis).
+
+## Nhập ảnh từ link Google Drive công khai
+
+PTG dán link thư mục Drive (chia sẻ "Bất kỳ ai có đường liên kết") ở trang chi tiết album →
+**Nhập từ link Drive**. Server liệt kê ảnh JPG (cả thư mục con tới 3 cấp, tối đa 5.000 ảnh),
+chạy nền: tải từng ảnh, nén theo mức nén của album (giữ EXIF), **chép vào Drive của PTG** như ảnh
+upload thường — watermark, Face Search, ZIP dùng y như cũ, kể cả khi thư mục gốc bị xoá sau đó.
+Nhập lại cùng link chỉ thêm ảnh mới. Áp dụng migration `011_photo_imports.sql`.
+
+Cần một **API key** (app chỉ có quyền `drive.file` nên không đọc được thư mục không do app tạo):
+
+1. Google Cloud Console → chọn project đang dùng cho OAuth → **APIs & Services → Library** → bật **Google Drive API**.
+2. **APIs & Services → Credentials → Create credentials → API key**.
+3. Bấm vào key vừa tạo → **API restrictions → Restrict key → Google Drive API** → Save.
+4. Thêm vào `BE/.env`: `GOOGLE_API_KEY=<key>` rồi khởi động lại backend.
+
+Thiếu key thì API trả `503 DRIVE_IMPORT_NOT_CONFIGURED`. Lượt nhập còn dở khi server tắt sẽ chạy
+tiếp khi khởi động lại.
+
+## Dữ liệu demo
+
+```bash
+npm run seed:demo            # 20 album có ảnh thật (upload lên Drive của photographer đầu tiên), PIN chung 1234
+npm run seed:demo -- --clean # xoá các album demo (DB + folder Drive)
+```
+
 ## Cấu trúc thư mục
 
 ```
@@ -186,9 +226,9 @@ db/
 
 ## Trạng thái hiện tại
 
-- [x] Khởi tạo project Express
-- [x] Kết nối Postgres local qua Docker + pgvector
-- [x] Route /api/health kiểm tra kết nối
-- [ ] Thiết kế schema (album, photo, client, PIN, deadline, face vector, annotation)
-- [ ] Google OAuth 2.0
-- [ ] Kết nối Google Drive API
+- [x] Express + Postgres (pgvector) + Redis qua Docker, Swagger `/api-docs`
+- [x] Google OAuth 2.0 + Google Drive API (folder riêng cho từng album)
+- [x] Album, upload ảnh, PIN + watermark động cho khách, hạn chọn ảnh, ZIP
+- [x] AI culling phía trình duyệt, Face Search (InsightFace), ghi chú chỉnh sửa
+- [x] Bàn giao Show Kỷ Yếu: chủ Studio, thợ chụp/quay, editor hậu kỳ
+- [ ] Trang Bảng điều khiển, Khách hàng, Cài đặt (đang hiện "Sắp có" trên sidebar)

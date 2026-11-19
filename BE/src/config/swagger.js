@@ -151,6 +151,30 @@ const options = {
 						},
 					},
 				},
+				PhotoImport: {
+					type: "object",
+					properties: {
+						id: { type: "string", format: "uuid" },
+						album_id: { type: "string", format: "uuid" },
+						source_url: { type: "string" },
+						source_kind: { type: "string", enum: ["folder", "file"] },
+						source_name: { type: "string", nullable: true, description: "Tên thư mục/file trên Drive" },
+						status: { type: "string", enum: ["queued", "running", "done", "failed", "cancelled"] },
+						total_files: { type: "integer", description: "Số ảnh JPG tìm thấy" },
+						imported_count: { type: "integer" },
+						skipped_existing_count: { type: "integer", description: "Đã có trong album từ lượt nhập trước" },
+						unsupported_count: { type: "integer", description: "File RAW/HEIC/video… bỏ qua" },
+						failed_count: { type: "integer" },
+						failed_files: {
+							type: "array",
+							items: { type: "object", properties: { name: { type: "string" }, reason: { type: "string" } } },
+						},
+						error_message: { type: "string", nullable: true },
+						created_at: { type: "string", format: "date-time" },
+						started_at: { type: "string", format: "date-time", nullable: true },
+						finished_at: { type: "string", format: "date-time", nullable: true },
+					},
+				},
 				JoinedShow: {
 					allOf: [
 						{ $ref: "#/components/schemas/StudioShow" },

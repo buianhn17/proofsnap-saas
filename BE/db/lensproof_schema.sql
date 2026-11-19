@@ -122,6 +122,7 @@ CREATE TABLE photos (
                            CHECK (face_index_status IN ('pending','done','failed')),
     face_index_attempts    SMALLINT NOT NULL DEFAULT 0,
     client_upload_id       UUID,                        -- chống upload trùng khi trình duyệt thử lại
+    source_drive_file_id   TEXT,                        -- id file trên Drive công khai khi ảnh được nhập từ link (migration 011)
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (album_id, drive_file_id)
 );
@@ -368,6 +369,40 @@ CREATE TABLE show_submissions (
 );
 CREATE INDEX idx_show_submissions_show ON show_submissions (show_id, crew_type, submitted_at);
 CREATE INDEX idx_show_submissions_crew ON show_submissions (crew_user_id);
+
+-- ------------------------------------------------------------
+-- 19. NHẬP ẢNH TỪ LINK GOOGLE DRIVE CÔNG KHAI (migration 011)
+-- ------------------------------------------------------------
+CREATE UNIQUE INDEX idx_photos_source_drive_file
+    ON photos (album_id, source_drive_file_id)
+    WHERE source_drive_file_id IS NOT NULL;
+
+CREATE TABLE photo_imports (
+    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    album_id                UUID NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    photographer_id         UUID NOT NULL REFERENCES photographers(id) ON DELETE CASCADE,
+    source_url              TEXT NOT NULL,
+    source_kind             TEXT NOT NULL CHECK (source_kind IN ('folder', 'file')),
+    source_id               TEXT NOT NULL,
+    source_name             TEXT,
+    status                  TEXT NOT NULL DEFAULT 'queued'
+                            CHECK (status IN ('queued', 'running', 'done', 'failed', 'cancelled')),
+    total_files             INTEGER NOT NULL DEFAULT 0,  -- số ảnh JPG tìm thấy
+    imported_count          INTEGER NOT NULL DEFAULT 0,
+    skipped_existing_count  INTEGER NOT NULL DEFAULT 0,  -- đã có trong album từ lượt nhập trước
+    unsupported_count       INTEGER NOT NULL DEFAULT 0,  -- RAW, HEIC, video… (chỉ nhận JPG)
+    failed_count            INTEGER NOT NULL DEFAULT 0,
+    failed_files            JSONB NOT NULL DEFAULT '[]'::jsonb,  -- [{ name, reason }] tối đa 50
+    error_message           TEXT,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at              TIMESTAMPTZ,
+    finished_at             TIMESTAMPTZ
+);
+CREATE INDEX idx_photo_imports_album ON photo_imports (album_id, created_at DESC);
+-- Mỗi album chỉ chạy 1 lượt nhập tại một thời điểm
+CREATE UNIQUE INDEX idx_photo_imports_one_active
+    ON photo_imports (album_id)
+    WHERE status IN ('queued', 'running');
 
 -- ============================================================
 -- GHI CHÚ: cache ảnh đã watermark (mục 6.3) đặt ở Redis theo đúng

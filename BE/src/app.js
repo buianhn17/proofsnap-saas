@@ -12,6 +12,7 @@ const albumsRoute = require("./routes/albums");
 const photosRoute = require("./routes/photos");
 const clientRoute = require("./routes/client");
 const studioRoute = require("./routes/studio");
+const photoImportsRoute = require("./routes/photoImports");
 const { notFoundHandler, errorHandler } = require("./middlewares/errorMiddleware");
 
 function createApp() {
@@ -33,6 +34,7 @@ function createApp() {
   app.use("/api/drive", driveRoute);
   app.use("/api/albums", albumsRoute);
   app.use("/api/albums/:albumId/photos", photosRoute);
+  app.use("/api/albums/:albumId/imports", photoImportsRoute);
   app.use("/api/public/albums", clientRoute);
   app.use("/api/studio", studioRoute);
 
