@@ -148,3 +148,52 @@ p {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------- Client Portal: cảm giác app Ảnh trên điện thoại ---------- */
+
+/* iOS Safari tự phóng to trang khi focus ô nhập chữ < 16px — giữ 16px trên màn cảm ứng */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* Ẩn thanh cuộn của dải cuộn ngang (trình xem ảnh, chip lọc) — vẫn cuộn được bằng tay/phím */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Ảnh hiện dần khi tải xong, nền xám giữ chỗ — không nhảy layout */
+.photo-fade {
+  opacity: 0;
+  transition: opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.photo-fade[data-loaded] {
+  opacity: 1;
+}
+
+/* Nhịp "bật" của trái tim khi thả tim */
+@keyframes heartPop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.28); }
+  70% { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+.animate-heart-pop {
+  animation: heartPop 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* View Transitions: ảnh phóng từ ô lưới ra trình xem (Chrome/Edge, Safari 18+) */
+::view-transition-group(*) {
+  animation-duration: 0.32s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.22s;
+}

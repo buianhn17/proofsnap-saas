@@ -1,15 +1,19 @@
 // Giai đoạn 3 — AI Face Search (Bước 3.1 màn hình đồng ý + Bước 3.3 upload selfie/kết quả).
 // 3 trạng thái tuần tự: đang tải -> (nếu album/khách bị đánh dấu vị thành niên) khóa hẳn
 // tính năng -> (nếu chưa đồng ý) màn hình xin đồng ý -> (đã đồng ý) upload selfie + kết quả.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { isAxiosError } from "axios";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
+import PageSpinner from "../../components/ui/PageSpinner";
 import { CameraIcon, ScanFaceIcon, ShieldCheckIcon } from "../../components/Icons";
-import { useClientAlbum } from "../../contexts/ClientAlbumContext";
+import { useClientAlbum, useIsAlbumExpired } from "../../contexts/ClientAlbumContext";
 import PhotoAnnotationLightbox from "../../components/PhotoAnnotationLightbox";
+import PhotoViewer, { type ViewerPhoto } from "../../components/client/PhotoViewer";
+import PhotoTile from "../../components/client/PhotoTile";
+import { runViewTransition } from "../../lib/photoViewing";
 
 interface ConsentStatus {
   feature_available: boolean;
@@ -58,6 +62,21 @@ export default function FaceSearchPage() {
   const [searchedAt, setSearchedAt] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openPhotoId, setOpenPhotoId] = useState<string | null>(null);
+  const [annotatePhotoId, setAnnotatePhotoId] = useState<string | null>(null);
+  const expired = useIsAlbumExpired();
+  const selectedRef = useRef(selected);
+  useEffect(() => {
+    selectedRef.current = selected;
+  });
+
+  // Ảnh đã thả tim ở tab Thư viện cũng phải hiện đúng ở đây
+  useEffect(() => {
+    if (!albumId) return;
+    api
+      .get<{ photos: { id: string; selected: boolean }[] }>(`/api/public/albums/${albumId}/photos`)
+      .then(({ data }) => setSelected(new Set(data.photos.filter((p) => p.selected).map((p) => p.id))))
+      .catch(() => {});
+  }, [albumId]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -152,42 +171,58 @@ export default function FaceSearchPage() {
     setSearchedAt(null);
   }
 
-  async function toggleHeart(photoId: string) {
-    if (!albumId) return;
-    try {
-      const { data } = await api.post<{ selected: boolean }>(
-        `/api/public/albums/${albumId}/photos/${photoId}/select`
-      );
-      setSelected((prev) => {
-        const next = new Set(prev);
-        if (data.selected) next.add(photoId);
-        else next.delete(photoId);
-        return next;
-      });
-    } catch {
-      // Bỏ qua lỗi 1 lượt thả tim, không chặn xem kết quả còn lại.
-    }
-  }
+  // Thả tim phản hồi ngay, lỗi thì trả lại như cũ
+  const toggleHeart = useCallback(
+    async (photoId: string) => {
+      if (!albumId || expired) return;
+      const wasSelected = selectedRef.current.has(photoId);
+      const flip = (on: boolean) =>
+        setSelected((prev) => {
+          const next = new Set(prev);
+          if (on) next.add(photoId);
+          else next.delete(photoId);
+          return next;
+        });
+      flip(!wasSelected);
+      try {
+        const { data } = await api.post<{ selected: boolean }>(`/api/public/albums/${albumId}/photos/${photoId}/select`);
+        flip(data.selected);
+      } catch {
+        flip(wasSelected);
+      }
+    },
+    [albumId, expired]
+  );
+
+  const openViewer = useCallback((photoId: string) => {
+    runViewTransition(() => setOpenPhotoId(photoId));
+  }, []);
 
   const sortedResults = useMemo(
     () => (results ? [...results].sort((a, b) => b.similarity - a.similarity) : null),
     [results]
   );
+  const viewerItems = useMemo<ViewerPhoto[]>(
+    () => (sortedResults ?? []).map((p) => ({ id: p.id, name: p.original_base_filename })),
+    [sortedResults]
+  );
+  const viewerIndex = openPhotoId && sortedResults ? sortedResults.findIndex((p) => p.id === openPhotoId) : -1;
 
   if (statusError) {
     return (
-      <p className="rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">{statusError}</p>
+      <p className="rounded-md bg-rose-950/50 px-3 py-2 text-sm text-rose-300">{statusError}</p>
     );
   }
 
   if (!album || !status) {
-    return <p className="text-sm text-zinc-400">Đang tải…</p>;
+    return <PageSpinner fullHeight />;
   }
 
   if (!status.feature_available) {
     return (
-      <div className="rounded-lg border border-amber-500/30 bg-amber-950/60 p-6">
-        <h1 className="text-lg font-semibold text-amber-200">
+      <div className="rounded-2xl border border-amber-500/30 bg-amber-950/40 p-6">
+        <title>{"Tìm ảnh bằng khuôn mặt · LensProof"}</title>
+        <h1 className="text-lg font-bold tracking-tight text-amber-100">
           Tìm ảnh bằng khuôn mặt không khả dụng
         </h1>
         <p className="mt-2 text-sm text-amber-200">
@@ -208,7 +243,8 @@ export default function FaceSearchPage() {
             <span className="flex size-14 items-center justify-center rounded-2xl border border-white/10 bg-zinc-950 text-indigo-300">
               <ScanFaceIcon size={26} />
             </span>
-            <h1 className="mt-4 text-2xl font-semibold text-zinc-100">
+            <title>{"Tìm ảnh bằng khuôn mặt · LensProof"}</title>
+            <h1 className="mt-4 text-xl font-bold tracking-tight text-white sm:text-2xl">
               Yêu cầu xin phép xử lý dữ liệu
             </h1>
           </div>
@@ -268,7 +304,7 @@ export default function FaceSearchPage() {
             </label>
 
             {consentError && (
-              <p className="mt-3 text-sm text-red-300">{consentError}</p>
+              <p className="mt-3 text-sm text-rose-300">{consentError}</p>
             )}
           </div>
 
@@ -310,7 +346,8 @@ export default function FaceSearchPage() {
   if (searching) {
     return (
       <div>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-zinc-100">
+        <title>{"Tìm ảnh bằng khuôn mặt · LensProof"}</title>
+        <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
           Tìm ảnh của bạn
         </h1>
         <p className="mt-2 max-w-2xl text-base text-zinc-400">
@@ -329,7 +366,7 @@ export default function FaceSearchPage() {
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-2 text-sm font-medium text-zinc-100">
               <span className="size-2 animate-pulse rounded-full bg-indigo-500" />
-              Đang phân tích khuôn mặt...
+              Đang phân tích khuôn mặt…
             </p>
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
               <div className="h-full w-2/3 animate-pulse rounded-full bg-indigo-500" />
@@ -391,65 +428,58 @@ export default function FaceSearchPage() {
         </div>
 
         {searchError && (
-          <p className="mt-4 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
+          <p className="mt-4 rounded-md bg-rose-950/50 px-3 py-2 text-sm text-rose-300">
             {searchError}
           </p>
         )}
 
-        {sortedResults.length > 0 && (
-          <div className="mt-6 grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4">
+        {sortedResults.length > 0 && albumId && (
+          <div className="-mx-4 mt-6 grid grid-cols-3 gap-0.5 sm:mx-0 sm:grid-cols-4 sm:gap-1.5 md:grid-cols-5">
             {sortedResults.map((photo) => (
-              <div
-                key={photo.id}
-                className="relative overflow-hidden rounded-lg border border-white/10 bg-zinc-900"
-              >
-                <button
-                  type="button"
-                  onClick={() => setOpenPhotoId(photo.id)}
-                  className="block w-full"
-                >
-                  <img
-                    src={`${import.meta.env.VITE_API_BASE_URL}/api/public/albums/${albumId}/photos/${photo.id}/view?size=thumb`}
-                    alt={photo.original_base_filename}
-                    loading="lazy"
-                    decoding="async"
-                    className="aspect-square w-full object-cover"
-                  />
-                </button>
-                <span className="absolute left-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-zinc-100">
-                  Khớp {Math.round(photo.similarity * 100)}%
-                </span>
-                <button
-                  type="button"
-                  onClick={() => toggleHeart(photo.id)}
-                  aria-label="Thả tim"
-                  className={`absolute right-2 top-2 flex size-7 items-center justify-center rounded-full text-base shadow ${
-                    selected.has(photo.id)
-                      ? "bg-red-500 text-white"
-                      : "bg-black/50 text-zinc-100"
-                  }`}
-                >
-                  {selected.has(photo.id) ? "♥" : "♡"}
-                </button>
-                <p className="truncate px-2 py-1.5 text-xs text-zinc-400">
-                  {photo.original_base_filename}
-                </p>
+              <div key={photo.id} className="aspect-square">
+                <PhotoTile
+                  albumId={albumId}
+                  photoId={photo.id}
+                  name={photo.original_base_filename}
+                  liked={selected.has(photo.id)}
+                  onOpen={openViewer}
+                  onHeart={toggleHeart}
+                  transition={photo.id !== openPhotoId}
+                  badge={
+                    <span className="pointer-events-none absolute left-1 top-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white backdrop-blur-md sm:left-2 sm:top-2">
+                      {Math.round(photo.similarity * 100)}%
+                    </span>
+                  }
+                />
               </div>
             ))}
           </div>
         )}
 
-        {openPhotoId && albumId && (
+        {viewerIndex >= 0 && albumId && (
+          <PhotoViewer
+            albumId={albumId}
+            photos={viewerItems}
+            index={viewerIndex}
+            onIndexChange={(index) => setOpenPhotoId(sortedResults[index]?.id ?? null)}
+            onClose={() => setOpenPhotoId(null)}
+            isSelected={(id) => selected.has(id)}
+            onToggleSelect={toggleHeart}
+            selectDisabled={expired}
+            onAnnotate={setAnnotatePhotoId}
+            suspended={annotatePhotoId !== null}
+          />
+        )}
+
+        {annotatePhotoId && albumId && (
           <PhotoAnnotationLightbox
             albumId={albumId}
-            photoId={openPhotoId}
-            photoName={
-              results.find((p) => p.id === openPhotoId)?.original_base_filename ?? ""
-            }
+            photoId={annotatePhotoId}
+            photoName={results.find((p) => p.id === annotatePhotoId)?.original_base_filename ?? ""}
             albumName={album.name}
-            isSelected={selected.has(openPhotoId)}
-            onToggleSelect={() => toggleHeart(openPhotoId)}
-            onClose={() => setOpenPhotoId(null)}
+            isSelected={selected.has(annotatePhotoId)}
+            onToggleSelect={() => toggleHeart(annotatePhotoId)}
+            onClose={() => setAnnotatePhotoId(null)}
           />
         )}
       </div>
@@ -458,7 +488,8 @@ export default function FaceSearchPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-zinc-100">
+      <title>{"Tìm ảnh bằng khuôn mặt · LensProof"}</title>
+      <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
         Tìm ảnh của bạn
       </h1>
       <p className="mt-2 max-w-2xl text-base text-zinc-400">
@@ -484,7 +515,7 @@ export default function FaceSearchPage() {
       </label>
 
       {searchError && (
-        <p className="mt-4 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
+        <p className="mt-4 rounded-md bg-rose-950/50 px-3 py-2 text-sm text-rose-300">
           {searchError}
         </p>
       )}

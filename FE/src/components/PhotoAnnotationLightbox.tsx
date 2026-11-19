@@ -15,7 +15,7 @@ import {
 import { isAxiosError } from "axios";
 import { api } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
-import { MapPinIcon, PencilIcon, TrashIcon } from "./Icons";
+import { HeartIcon, MapPinIcon, PencilIcon, TrashIcon, XIcon } from "./Icons";
 import { useClientAlbum, useIsAlbumExpired } from "../contexts/ClientAlbumContext";
 import { useEscapeKey } from "../lib/useEscapeKey";
 
@@ -268,22 +268,22 @@ export default function PhotoAnnotationLightbox({
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Xem ảnh và ghi chú" className="fixed inset-0 z-50 flex flex-col bg-zinc-950">
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-900 px-6">
-        <div className="flex items-center gap-3">
+      <div className="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-zinc-900 px-2 pt-[env(safe-area-inset-top)] sm:h-16 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button
             type="button"
             onClick={onClose}
             aria-label="Đóng"
-            className="text-xl text-zinc-100 hover:text-white"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-zinc-100 transition hover:bg-white/10 active:scale-90"
           >
-            ✕
+            <XIcon size={20} />
           </button>
-          {albumName && (
-            <span className="text-base font-semibold text-zinc-100">{albumName}</span>
-          )}
-          <span className="truncate text-sm text-zinc-400">{photoName}</span>
+          <div className="min-w-0">
+            {albumName && <p className="hidden truncate text-base font-semibold text-zinc-100 sm:block">{albumName}</p>}
+            <p className="truncate text-sm text-zinc-400" translate="no">{photoName}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-4">
           {showNav && (
             <div className="flex items-center gap-3">
               <button
@@ -315,28 +315,27 @@ export default function PhotoAnnotationLightbox({
               onClick={onToggleSelect}
               disabled={expired}
               title={expired ? "Đã hết hạn chọn ảnh" : "Thả tim"}
-              className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+              aria-pressed={isSelected}
+              className={`flex min-h-10 items-center gap-2 rounded-full px-3 text-sm font-semibold transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 ${
                 isSelected
-                  ? "bg-indigo-500 text-white hover:bg-indigo-400"
-                  : "border border-white/10 text-zinc-100 hover:bg-zinc-800"
+                  ? "bg-rose-500/15 text-rose-300 hover:bg-rose-500/25"
+                  : "bg-white/10 text-zinc-100 hover:bg-white/15"
               }`}
             >
-              <span className={isSelected ? "text-red-400" : ""}>
-                {isSelected ? "♥" : "♡"}
-              </span>
-              {isSelected ? "Đã chọn ảnh này" : "Chọn ảnh này"}
+              <HeartIcon size={17} fill={isSelected ? "currentColor" : "none"} />
+              <span className="hidden sm:inline">{isSelected ? "Đã thích" : "Thả tim"}</span>
             </button>
           )}
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="relative flex flex-1 items-center justify-center overflow-hidden p-6">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3 sm:p-6">
           <div className="relative inline-block max-h-full max-w-full">
             <img
               src={`${import.meta.env.VITE_API_BASE_URL}/api/public/albums/${albumId}/photos/${photoId}/view?size=preview`}
               alt={photoName}
-              className="block max-h-[75vh] max-w-full select-none object-contain"
+              className="block max-h-[52dvh] max-w-full select-none object-contain lg:max-h-[75vh]"
               draggable={false}
             />
             <svg
@@ -462,9 +461,10 @@ export default function PhotoAnnotationLightbox({
           )}
         </div>
 
-        <div className="flex w-[340px] shrink-0 flex-col border-l border-white/10 bg-zinc-900">
-          <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
-            <h2 className="text-xl font-semibold text-zinc-100">Ghi chú chỉnh sửa</h2>
+        {/* Điện thoại: ghi chú nằm dưới ảnh; màn lớn: cột bên phải */}
+        <div className="flex max-h-[42dvh] w-full shrink-0 flex-col border-t border-white/10 bg-zinc-900 pb-[env(safe-area-inset-bottom)] lg:max-h-none lg:w-[340px] lg:border-l lg:border-t-0 lg:pb-0">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 sm:px-6 sm:py-5">
+            <h2 className="text-base font-semibold text-zinc-100 sm:text-xl">Ghi chú chỉnh sửa</h2>
             <span className="rounded-full border border-white/10 bg-zinc-800 px-2.5 py-1 text-xs font-medium text-zinc-400">
               {annotations.length} Ghi chú
             </span>
@@ -472,7 +472,7 @@ export default function PhotoAnnotationLightbox({
 
           <div className="flex-1 overflow-y-auto p-4">
             {error && (
-              <p className="mb-3 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
+              <p className="mb-3 rounded-md bg-rose-950/50 px-3 py-2 text-sm text-rose-300">
                 {error}
               </p>
             )}

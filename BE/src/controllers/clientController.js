@@ -78,8 +78,25 @@ function watermarkCacheKey(photoId, name, phone, size) {
   return size ? `watermark:${photoId}:${size}:${identity}` : `watermark:${photoId}:${identity}`;
 }
 
+// Chống dò PIN: PIN 4 số chỉ có 10.000 khả năng — giới hạn số lần nhập SAI theo album + IP.
+const PIN_FAIL_LIMIT = 10;
+const PIN_FAIL_WINDOW_SECONDS = 15 * 60;
+
+function pinFailKey(albumId, ip) {
+  return `pin-fail:${albumId}:${ip}`;
+}
+
 async function verifyPin(req, res, next) {
   try {
+    const failKey = pinFailKey(req.params.albumId, req.ip);
+    const failCount = Number(await redis.get(failKey).catch(() => 0)) || 0;
+    if (failCount >= PIN_FAIL_LIMIT) {
+      return res.status(429).json({
+        error: "TOO_MANY_PIN_ATTEMPTS",
+        message: "Nhập sai mã PIN quá nhiều lần. Vui lòng thử lại sau 15 phút.",
+      });
+    }
+
     const album = await albumModel.findPublicById(req.params.albumId);
     if (!album || album.status !== "active") {
       return res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
@@ -90,8 +107,15 @@ async function verifyPin(req, res, next) {
 
     const { pin, name, phone } = req.body || {};
     if (album.pin_enabled && (typeof pin !== "string" || !(await bcrypt.compare(pin, album.pin_hash)))) {
+      await redis
+        .multi()
+        .incr(failKey)
+        .expire(failKey, PIN_FAIL_WINDOW_SECONDS, "NX")
+        .exec()
+        .catch((error) => console.error("Không ghi được lượt nhập sai PIN:", error.message));
       return res.status(401).json({ error: "INVALID_ALBUM_PIN", message: "Mã PIN không đúng" });
     }
+    redis.del(failKey).catch(() => {});
     const identity = validateClientIdentity(name, phone);
     const token = jwt.sign(
       {
@@ -144,7 +168,16 @@ async function listPhotos(req, res, next) {
       return res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
     }
 
-    const photos = await photoModel.listByAlbumId(albumId);
+    // Ảnh khách đã thả tim (chỉ tra cứu — không tạo bản ghi khách chỉ vì xem ảnh)
+    const clientAccount = await clientModel.findClientAccountByPhone(req.client.clientPhone);
+    const client = clientAccount
+      ? await clientModel.findClient({ albumId, clientAccountId: clientAccount.id })
+      : null;
+    const [photos, selectedIds] = await Promise.all([
+      photoModel.listByAlbumId(albumId),
+      client ? clientModel.listSelectedPhotoIds(client.id) : [],
+    ]);
+    const selectedSet = new Set(selectedIds);
     // Không trả drive_file_id / các trường chấm điểm nội bộ (sharpness_score,
     // eye_status, culling_flag...) cho client - đó là dữ liệu làm việc của PTG.
     // burst_cluster_id thì trả ra (Bước 2.3) để FE gom nhóm/gợi ý ảnh giống nhau cho công cụ
@@ -168,6 +201,7 @@ async function listPhotos(req, res, next) {
         created_at,
         burst_cluster_id,
         is_best_in_cluster,
+        selected: selectedSet.has(id),
       })
     );
     res.json({ photos: publicPhotos });

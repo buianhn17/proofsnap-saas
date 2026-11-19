@@ -61,6 +61,12 @@ async function findOrCreateClient({ albumId, clientAccountId }) {
   return result.rows[0];
 }
 
+/** Id các ảnh khách này đã thả tim trong album — để gallery hiện đúng trạng thái khi tải lại trang. */
+async function listSelectedPhotoIds(clientId) {
+  const result = await pool.query("SELECT photo_id FROM selections WHERE client_id = $1", [clientId]);
+  return result.rows.map((row) => row.photo_id);
+}
+
 async function toggleSelection({ clientId, photoId }) {
   const deleted = await pool.query(
     "DELETE FROM selections WHERE client_id = $1 AND photo_id = $2 RETURNING id",
@@ -153,6 +159,7 @@ async function listSelectionsForAlbum(albumId) {
 }
 
 module.exports = {
+  listSelectedPhotoIds,
   findOrCreateClientAccount,
   findOrCreateClient,
   findClientAccountByPhone,

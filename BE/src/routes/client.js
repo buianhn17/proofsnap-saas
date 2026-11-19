@@ -46,6 +46,8 @@ const uploadSelfie = multer({
  *         description: Không tìm thấy album
  *       423:
  *         description: Album đã bị khóa
+ *       429:
+ *         description: Nhập sai PIN quá 10 lần trong 15 phút (TOO_MANY_PIN_ATTEMPTS)
  */
 router.post("/:albumId/verify-pin", clientController.verifyPin);
 

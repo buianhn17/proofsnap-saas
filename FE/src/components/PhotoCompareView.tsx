@@ -4,6 +4,7 @@
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useEscapeKey } from "../lib/useEscapeKey";
+import { ChevronLeftIcon, HeartIcon } from "./Icons";
 
 interface ComparePhoto {
   id: string;
@@ -111,26 +112,28 @@ export default function PhotoCompareView({
   }
 
   const panels: { side: "left" | "right"; photo: ComparePhoto; label: string }[] = [
-    { side: "left", photo: left, label: "Chọn trái" },
-    { side: "right", photo: right, label: "Chọn phải" },
+    { side: "left", photo: left, label: "Thả tim" },
+    { side: "right", photo: right, label: "Thả tim" },
   ];
 
   return (
     <div role="dialog" aria-modal="true" aria-label="So sánh hai ảnh" className="fixed inset-0 z-50 flex flex-col bg-zinc-950">
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-900 px-6">
+      <div className="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-zinc-900 px-2 pt-[env(safe-area-inset-top)] sm:h-16 sm:px-6">
         <button
           type="button"
           onClick={onClose}
-          className="text-sm font-medium text-zinc-400 hover:text-zinc-100"
+          aria-label="Đóng so sánh"
+          className="flex min-h-11 items-center gap-1 rounded-full px-2 text-sm font-medium text-zinc-300 transition hover:bg-white/10 hover:text-white active:scale-95"
         >
-          ← Quay lại xem lưới
+          <ChevronLeftIcon size={20} />
+          <span className="hidden sm:inline">Quay lại lưới</span>
         </button>
-        <div className="text-center">
-          <p className="text-lg font-semibold text-zinc-100">So sánh chi tiết</p>
-          <p className="text-xs text-zinc-500">Chọn 1 trong 2 ảnh để giữ lại</p>
+        <div className="min-w-0 text-center">
+          <p className="text-[15px] font-semibold text-zinc-100 sm:text-lg">So sánh</p>
+          <p className="hidden text-xs text-zinc-500 sm:block">Chọn 1 trong 2 ảnh để giữ lại</p>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-zinc-400">Đồng bộ Zoom/Pan</span>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <span className="hidden text-sm text-zinc-400 sm:inline">Đồng bộ Zoom/Pan</span>
           <button
             type="button"
             role="switch"
@@ -150,12 +153,12 @@ export default function PhotoCompareView({
         </div>
       </div>
 
-      <div className="flex flex-1 gap-px overflow-hidden bg-zinc-700">
+      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-hidden bg-zinc-700 sm:flex-row">
         {panels.map(({ side, photo, label }) => {
           const transform = getTransform(side);
           const selected = isSelected(photo.id);
           return (
-            <div key={photo.id} className="flex flex-1 flex-col bg-zinc-950">
+            <div key={photo.id} className="flex min-h-0 flex-1 flex-col bg-zinc-950">
               <div
                 className="relative flex-1 overflow-hidden"
                 style={{ cursor: transform.scale > 1 ? "grab" : "default" }}
@@ -198,7 +201,7 @@ export default function PhotoCompareView({
                   </button>
                 </div>
               </div>
-              <div className="flex items-center justify-between border-t border-white/10 bg-zinc-900 px-4 py-3">
+              <div className="flex items-center justify-between gap-3 border-t border-white/10 bg-zinc-900 px-4 py-2 sm:py-3 [&:last-child]:pb-[max(0.5rem,env(safe-area-inset-bottom))]">
                 <div className="min-w-0">
                   <p className="truncate text-sm text-zinc-100">{photo.original_base_filename}</p>
                   <p className="text-xs text-zinc-500">Ngày chụp: {formatDate(photo.created_at)}</p>
@@ -206,13 +209,13 @@ export default function PhotoCompareView({
                 <button
                   type="button"
                   onClick={() => onToggleSelect(photo.id)}
-                  className={`shrink-0 rounded-lg border px-4 py-2 text-sm font-semibold ${
-                    selected
-                      ? "border-indigo-500 bg-indigo-500 text-white"
-                      : "border-white/10 text-zinc-100 hover:bg-zinc-800"
+                  aria-pressed={selected}
+                  className={`flex min-h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-semibold transition active:scale-95 ${
+                    selected ? "bg-rose-500/15 text-rose-300" : "bg-white/10 text-zinc-100 hover:bg-white/15"
                   }`}
                 >
-                  {selected ? "✓ Đã chọn" : label}
+                  <HeartIcon size={16} fill={selected ? "currentColor" : "none"} />
+                  {selected ? "Đã thích" : label}
                 </button>
               </div>
             </div>

@@ -47,6 +47,8 @@ export default function AlbumAccessPage() {
           </svg>
         </div>
 
+        <title>{"Mở album ảnh · LensProof"}</title>
+
         <h1 className="mt-5 text-xl font-bold tracking-tight text-white">Mở album ảnh của bạn</h1>
         <p className="mt-1 text-sm text-zinc-400">
           Nhập mã PIN nhiếp ảnh gia đã gửi để xem và chọn ảnh.

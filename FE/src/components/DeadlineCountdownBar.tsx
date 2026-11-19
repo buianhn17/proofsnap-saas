@@ -4,6 +4,7 @@
 // Date.now() để tránh lệch nếu khách chỉnh giờ máy.
 import { useEffect, useState } from "react";
 import { estimatedServerNow, useClientAlbum } from "../contexts/ClientAlbumContext";
+import { ClockIcon } from "./Icons";
 
 function formatRemaining(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -29,15 +30,17 @@ export default function DeadlineCountdownBar() {
 
   if (album.is_locked) {
     return (
-      <div className="mb-6 rounded-xl border border-rose-500/30 bg-rose-950/60 px-4 py-2 text-center text-sm font-medium text-rose-300">
-        Album đã bị khóa — không thể thả tim hoặc thêm ghi chú mới.
+      <div className="mb-4 flex w-fit max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium sm:mb-6 border-rose-500/30 bg-rose-950/60 text-rose-300">
+        <ClockIcon size={13} className="shrink-0" />
+        Album đã khóa — chỉ xem, không chọn thêm được
       </div>
     );
   }
 
   if (!album.selection_deadline) {
     return (
-      <div className="mb-6 rounded-xl border border-white/10 bg-zinc-900/60 px-4 py-2 text-center text-xs text-zinc-400">
+      <div className="mb-4 flex w-fit max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium sm:mb-6 border-white/10 bg-zinc-900/60 text-zinc-400">
+        <ClockIcon size={13} className="shrink-0" />
         Không giới hạn thời gian chọn ảnh
       </div>
     );
@@ -48,7 +51,7 @@ export default function DeadlineCountdownBar() {
 
   return (
     <div
-      className={`mb-6 rounded-xl border px-4 py-2 text-center text-sm font-medium ${
+      className={`mb-4 flex w-fit max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium sm:mb-6 ${
         expired
           ? "border-rose-500/30 bg-rose-950/60 text-rose-300"
           : remainingMs < 5 * 60 * 1000
@@ -56,8 +59,9 @@ export default function DeadlineCountdownBar() {
             : "border-white/10 bg-zinc-900/60 text-zinc-300"
       }`}
     >
+      <ClockIcon size={13} className="shrink-0" />
       {expired
-        ? "Đã hết hạn chọn ảnh — không thể thả tim hoặc thêm ghi chú mới."
+        ? "Đã hết hạn chọn ảnh — chỉ xem, không chọn thêm được"
         : (
             <>
               Còn <span className="font-semibold tabular-nums">{formatRemaining(remainingMs)}</span> để chọn ảnh
