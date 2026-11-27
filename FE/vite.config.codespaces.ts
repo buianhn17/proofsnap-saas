@@ -4,7 +4,7 @@ import base from './vite.config'
 export default mergeConfig(base, defineConfig({
   server: {
     host: true,
-    allowedHosts: ['.app.github.dev'],
+    allowedHosts: ['.app.github.dev', '.trycloudflare.com'],
     proxy: { '/api': 'http://localhost:3000', '/api-docs': 'http://localhost:3000' },
   },
 }))
