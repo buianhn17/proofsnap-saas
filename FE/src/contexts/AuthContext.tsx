@@ -1,26 +1,6 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
-
-interface Photographer {
-  id: string;
-  email: string;
-  display_name: string | null;
-}
-
-interface AuthContextValue {
-  photographer: Photographer | null;
-  isLoading: boolean;
-  refresh: () => Promise<void>;
-  logout: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null);
+import { AuthContext, type Photographer } from "./auth";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [photographer, setPhotographer] = useState<Photographer | null>(null);
@@ -39,8 +19,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // Tải phiên đăng nhập khi mở app. setState chỉ chạy trong callback của promise (không đồng
+  // bộ trong effect), có cờ huỷ khi Provider bị gỡ.
   useEffect(() => {
-    refresh();
+    let cancelled = false;
+    api
+      .get<{ photographer: Photographer }>("/api/auth/me")
+      .then(({ data }) => !cancelled && setPhotographer(data.photographer))
+      .catch(() => !cancelled && setPhotographer(null))
+      .finally(() => !cancelled && setIsLoading(false));
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function logout() {
@@ -53,10 +43,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth phải được dùng bên trong AuthProvider");
-  return ctx;
 }

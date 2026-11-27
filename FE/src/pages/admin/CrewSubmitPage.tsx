@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from
 import { Link, Navigate, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
-import { useAuth } from "../../contexts/AuthContext";
+import { useAuth } from "../../contexts/auth";
 import {
   CULLED_STAT_LABELS,
   PHOTO_ROLES,
@@ -392,7 +392,7 @@ function RoleForm({
           maxLength={80}
           value={crewName}
           onChange={(e) => onCrewName(e.target.value)}
-          placeholder="VD: Trần Đức Chuối"
+          placeholder="VD: Trần Đức Chuối…"
           className={dialogInputClass}
         />
       </div>

@@ -138,7 +138,7 @@ export default function AlbumsPage() {
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          <span>Tạo album mới</span>
+          <span className="whitespace-nowrap">Tạo album mới</span>
         </Link>
       </div>
 
@@ -203,15 +203,16 @@ export default function AlbumsPage() {
       </div>
 
       {/* Filter Toolbar & Search */}
-      <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-zinc-900/50 p-3 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-zinc-900/50 p-3 backdrop-blur-xl md:flex-row md:items-center md:justify-between">
         {/* Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto">
+        <div role="group" aria-label="Lọc theo trạng thái" className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
           {FILTERS.map((f) => (
             <button
               key={f.key}
               type="button"
               onClick={() => setFilter(f.key)}
-              className={`rounded-xl px-3.5 py-1.5 text-xs font-medium transition duration-200 ${
+              aria-pressed={filter === f.key}
+              className={`inline-flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-xl px-3.5 py-1.5 text-sm font-medium transition duration-200 ${
                 filter === f.key
                   ? "bg-white/15 text-white shadow-sm border border-white/10"
                   : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
@@ -219,7 +220,7 @@ export default function AlbumsPage() {
             >
               {f.label}
               {albums && f.key === "all" && (
-                <span className="ml-1.5 rounded-full bg-white/10 px-1.5 py-0.2 text-[10px] text-zinc-300">
+                <span className="ml-1.5 rounded-full bg-white/10 px-1.5 py-0.5 text-[11px] tabular-nums text-zinc-300">
                   {albums.length}
                 </span>
               )}
@@ -229,7 +230,7 @@ export default function AlbumsPage() {
 
         {/* Search & View Mode */}
         <div className="flex items-center gap-2">
-          <div className="relative flex-1 sm:w-64">
+          <div className="relative flex-1 md:w-64 md:flex-none">
             <svg
               className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500"
               viewBox="0 0 24 24"
@@ -248,7 +249,7 @@ export default function AlbumsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Tìm kiếm album…"
-              className="w-full rounded-xl border border-white/10 bg-zinc-950/70 py-1.5 pl-9 pr-8 text-xs text-white placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-xl border border-white/10 bg-zinc-950/70 py-1.5 pl-9 pr-8 text-xs text-white placeholder:text-zinc-500 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
             />
             {search && (
               <button
@@ -391,6 +392,8 @@ export default function AlbumsPage() {
                     <img
                       src={`${import.meta.env.VITE_API_BASE_URL}/api/albums/${album.id}/photos/${album.cover_photo_id}/view?size=thumb`}
                       alt={album.name}
+                      width={400}
+                      height={300}
                       loading="lazy"
                       decoding="async"
                       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"

@@ -1,4 +1,5 @@
 import { Link, Outlet, useLocation, useParams } from "react-router-dom";
+import SkipLink from "../components/SkipLink";
 
 function NavItem({
   to,
@@ -71,7 +72,7 @@ export default function ClientLayout() {
         Thư viện
       </NavItem>
       <NavItem to={`/a/${albumId}/gallery?view=liked`} active={isLiked}>
-        Yêu thích
+        Đã chọn
       </NavItem>
       <NavItem to={`/a/${albumId}/face-search`} active={isFaceSearch}>
         Tìm bằng khuôn mặt
@@ -81,26 +82,27 @@ export default function ClientLayout() {
 
   return (
     <div className="min-h-dvh bg-[#090a0f] text-zinc-100 antialiased selection:bg-indigo-500/30">
+      <SkipLink />
       <header className="sticky top-0 z-30 border-b border-white/10 bg-zinc-950/80 pt-[env(safe-area-inset-top)] backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+        <div className="mx-auto flex h-12 max-w-6xl items-center justify-between gap-4 px-4 sm:h-14 sm:px-6">
           <BrandMark />
           {nav && (
-            <nav aria-label="Điều hướng album" className="hidden items-center gap-1 sm:flex">
+            <nav aria-label="Điều hướng album" className="hidden items-center gap-1 md:flex">
               {nav}
             </nav>
           )}
         </div>
-        {/* Trên mobile nav xuống hàng riêng, cuộn ngang được — không bị ẩn mất */}
-        {nav && (
-          <nav
-            aria-label="Điều hướng album"
-            className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 pb-2 sm:hidden"
-          >
-            {nav}
-          </nav>
-        )}
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8">
+      {/* Mobile: chừa chỗ cho thanh tab dưới (+ thanh "Gửi lựa chọn" của trang Thư viện). */}
+      <main
+        id="main"
+        tabIndex={-1}
+        className={`mx-auto max-w-6xl focus:outline-none px-4 py-4 sm:px-6 sm:py-8 ${
+          isAlbumScoped
+            ? "pb-[calc(9rem+env(safe-area-inset-bottom))] md:pb-28"
+            : "pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        }`}
+      >
         <Outlet />
       </main>
     </div>

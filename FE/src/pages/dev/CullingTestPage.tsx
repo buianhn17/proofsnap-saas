@@ -155,18 +155,22 @@ export default function CullingTestPage() {
     getHardwareInfo().then(setHardwareInfo);
   }, []);
 
-  // Sinh thumbnail cho bảng kết quả, huỷ URL cũ khi có kết quả mới / rời trang.
-  useEffect(() => {
-    if (!summary) return;
+  // Thumbnail cho bảng kết quả: tạo ngay khi có kết quả (trong luồng xử lý sự kiện, không
+  // phải effect), huỷ URL cũ khi có kết quả mới, huỷ hết khi rời trang.
+  const thumbnailUrlsRef = useRef<string[]>([]);
+  function replaceThumbnails(items: CullingTestSummary["items"] | null) {
+    thumbnailUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     const urls: Record<string, string> = {};
-    for (const item of summary.items) {
+    for (const item of items ?? []) {
       urls[item.file.relativePath] = URL.createObjectURL(item.file.file);
     }
+    thumbnailUrlsRef.current = Object.values(urls);
     setThumbnails(urls);
-    return () => {
-      Object.values(urls).forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, [summary]);
+  }
+  useEffect(() => {
+    const ref = thumbnailUrlsRef;
+    return () => ref.current.forEach((url) => URL.revokeObjectURL(url));
+  }, []);
 
   async function handlePickFolder() {
     setScanError(null);
@@ -209,6 +213,7 @@ export default function CullingTestPage() {
     try {
       const result = await promise;
       setSummary(result);
+      replaceThumbnails(result.items);
       setLastRunEyeMaxEdgePx(eyeMaxEdgePx);
 
       const avgEyeMs =

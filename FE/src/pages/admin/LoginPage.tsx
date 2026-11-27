@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useAuth } from "../../contexts/AuthContext";
+import { useAuth } from "../../contexts/auth";
 import backgroundImage from "../../assets/login/background.png";
 import logoIcon from "../../assets/login/logo-icon.svg";
 import googleIcon from "../../assets/login/google-icon.svg";
@@ -22,16 +22,18 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!isLoading && photographer) {
-      navigate("/admin/albums", { replace: true });
+      navigate("/admin/dashboard", { replace: true });
     }
   }, [isLoading, photographer, navigate]);
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#090a0f] text-slate-100 antialiased selection:bg-indigo-500/30">
+    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#090a0f] text-slate-100 antialiased selection:bg-indigo-500/30">
       {/* Background with Ambient Glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <img
           alt=""
+          width={1920}
+          height={1080}
           className="absolute left-1/2 top-0 h-full w-[140%] max-w-none -translate-x-1/2 object-cover opacity-25"
           src={backgroundImage}
         />
@@ -56,7 +58,7 @@ export default function LoginPage() {
 
           {/* Brand Icon */}
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-zinc-900 shadow-inner">
-            <img alt="LensProof" className="h-7 w-7" src={logoIcon} />
+            <img alt="LensProof" width={28} height={28} className="h-7 w-7" src={logoIcon} />
           </div>
 
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
@@ -83,7 +85,7 @@ export default function LoginPage() {
               href={googleLoginUrl}
               className="group flex w-full items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-sm font-semibold text-white shadow-lg transition duration-200 hover:bg-white/10 hover:border-white/25 hover:shadow-indigo-500/10 hover:-translate-y-0.5 active:translate-y-0"
             >
-              <img alt="" className="h-5 w-5 transition-transform group-hover:scale-110" src={googleIcon} />
+              <img alt="" width={20} height={20} className="h-5 w-5 transition-transform group-hover:scale-110" src={googleIcon} />
               <span>Đăng nhập với Google</span>
             </a>
           </div>

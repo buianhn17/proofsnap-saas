@@ -4,7 +4,7 @@ import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
 
 const inputClass =
-  "mt-1.5 w-full rounded-xl border border-white/10 bg-zinc-950/70 px-3.5 py-2.5 text-sm text-white placeholder:text-zinc-600 transition-colors focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 aria-[invalid=true]:border-rose-500/60";
+  "mt-1.5 w-full rounded-xl border border-white/10 bg-zinc-950/70 px-3.5 py-2.5 text-sm text-white placeholder:text-zinc-600 transition-colors focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500 aria-[invalid=true]:border-rose-500/60";
 
 export default function AlbumAccessPage() {
   const { albumId } = useParams<{ albumId: string }>();
@@ -64,7 +64,7 @@ export default function AlbumAccessPage() {
               autoComplete="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Nguyễn Văn A"
+              placeholder="VD: Nguyễn Văn A…"
               className={inputClass}
             />
           </div>
@@ -81,7 +81,7 @@ export default function AlbumAccessPage() {
               autoComplete="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="0901 234 567"
+              placeholder="VD: 0901 234 567…"
               className={inputClass}
             />
           </div>

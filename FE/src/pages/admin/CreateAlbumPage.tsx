@@ -1,14 +1,24 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
 import { COMPRESSION_PRESETS } from "../../lib/compressionPresets";
 import { PIN_PATTERN } from "../../lib/validation";
-import type { Album } from "../../lib/types";
+import type { Album, PhotographerSettings } from "../../lib/types";
 import { useEscapeKey } from "../../lib/useEscapeKey";
+import SwitchField from "../../components/SwitchField";
+import UnsavedChangesGuard from "../../components/UnsavedChangesGuard";
+import { useFocusTrap } from "../../lib/useFocusTrap";
+import { hasFinePointer } from "../../lib/pointer";
 
 const inputClass =
-  "w-full rounded-xl border border-white/10 bg-zinc-900/80 px-4 py-3 text-sm text-white placeholder:text-zinc-500 transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 [color-scheme:dark]";
+  "w-full rounded-xl border border-white/10 bg-zinc-900/80 px-4 py-3 text-sm text-white placeholder:text-zinc-500 transition focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500 [color-scheme:dark]";
+
+/** Giá trị cho <input type="date"> theo giờ máy (định dạng giao thức của input, không phải hiển thị). */
+function toLocalDateInput(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
 
 export default function CreateAlbumPage() {
   const navigate = useNavigate();
@@ -17,9 +27,54 @@ export default function CreateAlbumPage() {
   const [maxSelectablePhotos, setMaxSelectablePhotos] = useState("");
   const [selectionDeadline, setSelectionDeadline] = useState("");
   const [watermarkEnabled, setWatermarkEnabled] = useState(true);
+  // L7 (FR-05, NFR-03) — album có người dưới 18 tuổi (VD kỷ yếu): tắt hẳn tìm kiếm khuôn mặt,
+  // backend không trích embedding khuôn mặt cho mọi ảnh của album.
+  const [isMinorAlbum, setIsMinorAlbum] = useState(false);
   const [compressionPresetId, setCompressionPresetId] = useState(2);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Tạo xong thì điều hướng sang album mới — không được bị chặn bởi cảnh báo chưa lưu.
+  const [created, setCreated] = useState(false);
+  const [appliedDefaults, setAppliedDefaults] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
+  // Chỉ tự focus ô tên trên máy có chuột — trên điện thoại sẽ bật bàn phím ảo che nửa form.
+  const [autoFocusName] = useState(hasFinePointer);
+  const [todayLocal] = useState(() => toLocalDateInput(new Date()));
+
+  // Điền sẵn giá trị mặc định PTG đặt ở trang Cài đặt — chỉ ghi vào ô PTG chưa sửa.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ settings: PhotographerSettings }>("/api/settings")
+      .then(({ data }) => {
+        if (cancelled) return;
+        const d = data.settings.settings ?? {};
+        if (d.default_compression_preset_id) {
+          const preset = d.default_compression_preset_id;
+          setCompressionPresetId((prev) => (prev === 2 ? preset : prev));
+        }
+        if (typeof d.default_watermark_enabled === "boolean") {
+          const wm = d.default_watermark_enabled;
+          setWatermarkEnabled((prev) => (prev === true ? wm : prev));
+        }
+        if (d.default_max_selectable_photos) {
+          const max = String(d.default_max_selectable_photos);
+          setMaxSelectablePhotos((prev) => (prev === "" ? max : prev));
+        }
+        if (d.default_deadline_days) {
+          const local = toLocalDateInput(new Date(Date.now() + d.default_deadline_days * 86_400_000));
+          setSelectionDeadline((prev) => (prev === "" ? local : prev));
+        }
+        setAppliedDefaults(Object.keys(d).length > 0);
+      })
+      .catch(() => {
+        // Không có cài đặt mặc định thì dùng giá trị sẵn của form.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function handleClose() {
     navigate("/admin/albums");
@@ -47,13 +102,18 @@ export default function CreateAlbumPage() {
         max_selectable_photos: maxSelectablePhotos
           ? Number(maxSelectablePhotos)
           : null,
+        // Ô chọn ngày trả "YYYY-MM-DD" — new Date() sẽ hiểu là 00:00 UTC (= 07:00 sáng giờ VN),
+        // khoá album sớm gần cả ngày. Hạn chót là HẾT ngày đã chọn theo giờ máy PTG.
         selection_deadline: selectionDeadline
-          ? new Date(selectionDeadline).toISOString()
+          ? new Date(`${selectionDeadline}T23:59:59`).toISOString()
           : null,
         watermark_enabled: watermarkEnabled,
         compression_preset_id: compressionPresetId,
+        is_minor_album: isMinorAlbum,
       });
-      navigate(`/admin/albums/${data.album.id}`, { replace: true });
+      setCreated(true);
+      // Chờ 1 lượt render để UnsavedChangesGuard nhận when=false trước khi điều hướng.
+      setTimeout(() => navigate(`/admin/albums/${data.album.id}`, { replace: true }), 0);
     } catch (err) {
       setError(getErrorMessage(err, "Không thể tạo album"));
     } finally {
@@ -62,8 +122,15 @@ export default function CreateAlbumPage() {
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Tạo album mới" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in-up">
-      <div className="flex max-h-[90vh] w-full max-w-[620px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/80 backdrop-blur-2xl animate-scale-in">
+    <>
+    <UnsavedChangesGuard
+      when={!created && (name.trim() !== "" || pin !== "")}
+      title="Bỏ album đang tạo?"
+      message="Tên album và mã PIN bạn vừa nhập sẽ không được lưu."
+      leaveLabel="Bỏ album"
+    />
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="create-album-title" className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 p-0 sm:items-center sm:p-4 backdrop-blur-md animate-fade-in-up">
+      <div className="flex max-h-[min(92dvh,860px)] w-full max-w-[620px] flex-col overflow-hidden rounded-t-3xl sm:rounded-3xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/80 backdrop-blur-2xl animate-scale-in">
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
           <div className="flex items-center gap-3">
@@ -75,15 +142,17 @@ export default function CreateAlbumPage() {
               </svg>
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Tạo bộ sưu tập mới</h2>
-              <p className="text-xs text-zinc-400">Thiết lập cấu hình bảo vệ và chọn ảnh cho khách</p>
+              <h2 id="create-album-title" className="text-base font-bold text-white">Tạo bộ sưu tập mới</h2>
+              <p className="text-xs text-zinc-400">
+                {appliedDefaults ? "Đã điền sẵn theo mặc định trong Cài đặt" : "Thiết lập cấu hình bảo vệ và chọn ảnh cho khách"}
+              </p>
             </div>
           </div>
           <button
             type="button"
             onClick={handleClose}
             aria-label="Đóng"
-            className="flex h-8 w-8 items-center justify-center rounded-xl text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
+            className="flex size-11 items-center justify-center rounded-xl text-zinc-400 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 sm:size-9"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
@@ -97,26 +166,26 @@ export default function CreateAlbumPage() {
           <div className="grid grid-cols-1 gap-5 p-6 sm:grid-cols-2">
             {/* Album Name */}
             <div className="flex flex-col gap-1.5 sm:col-span-2">
-              <label htmlFor="album-name" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+              <label htmlFor="album-name" className="text-sm font-medium text-zinc-300">
                 Tên album <span className="text-rose-400">*</span>
               </label>
               <input id="album-name" name="name" autoComplete="off"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="VD: Đám cưới Hoàng & Thảo — Tiệc tối 2026"
+                placeholder="VD: Đám cưới Hoàng & Thảo — Tiệc tối 2026…"
                 className={inputClass}
-                autoFocus
+                autoFocus={autoFocusName}
               />
             </div>
 
             {/* PIN Code */}
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
-                <label htmlFor="album-pin" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                <label htmlFor="album-pin" className="text-sm font-medium text-zinc-300">
                   Mã PIN bảo mật <span className="text-rose-400">*</span>
                 </label>
-                <span className="text-[11px] text-zinc-500">4-12 số</span>
+                <span className="text-xs text-zinc-500">4–12 chữ số</span>
               </div>
               <div className="relative">
                 <svg
@@ -134,7 +203,7 @@ export default function CreateAlbumPage() {
                   inputMode="numeric"
                   value={pin}
                   onChange={(e) => setPin(e.target.value)}
-                  placeholder="VD: 1234"
+                  placeholder="VD: 1234…"
                   className={`${inputClass} pl-10 font-mono tracking-widest`}
                 />
               </div>
@@ -142,7 +211,7 @@ export default function CreateAlbumPage() {
 
             {/* Max Selectable Photos */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="album-max" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+              <label htmlFor="album-max" className="text-sm font-medium text-zinc-300">
                 Số ảnh chọn tối đa
               </label>
               <input id="album-max" name="max_selectable" inputMode="numeric"
@@ -157,11 +226,12 @@ export default function CreateAlbumPage() {
 
             {/* Deadline */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="album-deadline" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+              <label htmlFor="album-deadline" className="text-sm font-medium text-zinc-300">
                 Hạn chót chọn ảnh
               </label>
               <input id="album-deadline" name="deadline"
                 type="date"
+                min={todayLocal}
                 value={selectionDeadline}
                 onChange={(e) => setSelectionDeadline(e.target.value)}
                 className={inputClass}
@@ -170,7 +240,7 @@ export default function CreateAlbumPage() {
 
             {/* Compression Preset */}
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="album-preset" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+              <label htmlFor="album-preset" className="text-sm font-medium text-zinc-300">
                 Mức nén ảnh preview
               </label>
               <div className="relative">
@@ -198,33 +268,28 @@ export default function CreateAlbumPage() {
             </div>
 
             {/* Watermark Toggle */}
-            <div className="sm:col-span-2">
-              <label className="flex cursor-pointer items-start justify-between gap-4 rounded-2xl border border-white/10 bg-zinc-900/50 p-4 transition-colors hover:bg-zinc-900/80">
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-semibold text-white">
-                    Bảo vệ bản quyền Watermark
-                  </span>
-                  <span className="text-xs text-zinc-400">
-                    Áp dụng lớp phủ mờ [Tên khách hàng] — [SĐT] lên toàn bộ ảnh trong Client Portal để chống chụp màn hình trái phép.
-                  </span>
-                </div>
-                <div className="relative mt-1 inline-flex h-6 w-11 shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={watermarkEnabled}
-                    onChange={(e) => setWatermarkEnabled(e.target.checked)}
-                    className="peer sr-only"
-                  />
-                  <div className="h-6 w-11 rounded-full border border-white/10 bg-zinc-800 transition-colors peer-checked:bg-indigo-600" />
-                  <div className="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition-transform peer-checked:translate-x-5" />
-                </div>
-              </label>
-            </div>
+            <SwitchField
+              className="sm:col-span-2"
+              label="Bảo vệ bản quyền bằng watermark"
+              description="Phủ mờ [Tên khách hàng] — [SĐT] lên mọi ảnh trong Client Portal để chống chụp màn hình trái phép. Ảnh gốc trên Drive luôn sạch."
+              checked={watermarkEnabled}
+              onChange={setWatermarkEnabled}
+            />
+
+            {/* Minor album — L7 */}
+            <SwitchField
+              className="sm:col-span-2"
+              tone="warning"
+              label="Album có người dưới 18 tuổi (Tắt tìm kiếm khuôn mặt)"
+              description="Dùng cho kỷ yếu, sự kiện học sinh. Hệ thống sẽ không trích xuất dữ liệu khuôn mặt của bất kỳ ảnh nào và khách không thể dùng “Tìm ảnh bằng khuôn mặt” — tối thiểu hoá dữ liệu sinh trắc học theo Luật Bảo vệ dữ liệu cá nhân."
+              checked={isMinorAlbum}
+              onChange={setIsMinorAlbum}
+            />
           </div>
 
           {/* Error Message */}
           {error && (
-            <div className="mx-6 mb-4 rounded-xl border border-rose-500/20 bg-rose-950/40 p-3 text-xs text-rose-300">
+            <div role="alert" className="mx-6 mb-4 rounded-xl border border-rose-500/20 bg-rose-950/40 p-3 text-sm text-rose-300">
               {error}
             </div>
           )}
@@ -234,14 +299,14 @@ export default function CreateAlbumPage() {
             <button
               type="button"
               onClick={handleClose}
-              className="rounded-xl border border-white/10 px-4 py-2 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/5 hover:text-white"
+              className="h-11 rounded-xl border border-white/10 px-4 text-sm font-semibold text-zinc-300 transition-colors hover:bg-white/5 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 sm:h-10"
             >
               Hủy bỏ
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:from-indigo-400 hover:to-indigo-500 disabled:opacity-50"
+              className="inline-flex h-11 items-center gap-2 rounded-xl bg-indigo-500 px-5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-colors hover:bg-indigo-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300 active:translate-y-px disabled:opacity-50 sm:h-10"
             >
               {isSubmitting ? (
                 <>
@@ -256,5 +321,6 @@ export default function CreateAlbumPage() {
         </form>
       </div>
     </div>
+    </>
   );
 }

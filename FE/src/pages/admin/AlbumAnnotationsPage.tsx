@@ -229,7 +229,7 @@ export default function AlbumAnnotationsPage() {
   }
 
   return (
-    <div className="-m-6 sm:-m-8 lg:-m-10 flex h-screen flex-col bg-[#090a0f] text-slate-100">
+    <div className="-mx-4 -mt-5 -mb-[calc(5rem+env(safe-area-inset-bottom))] flex h-[calc(100dvh-3rem-3.25rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col bg-[#090a0f] text-slate-100 sm:-mx-8 sm:-mt-8 lg:-m-10 lg:h-dvh">
       {/* Top Header */}
       <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-950/80 px-6 backdrop-blur-md">
         <div className="flex items-center gap-2 text-xs text-zinc-400 font-mono">
@@ -295,7 +295,7 @@ export default function AlbumAnnotationsPage() {
                   onClick={() => setPhotoIndex((i) => Math.max(0, i - 1))}
                   aria-label="Ảnh trước"
                   disabled={photoIndex === 0}
-                  className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white hover:bg-white/10 disabled:opacity-30"
+                  className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-sm text-white hover:bg-white/10 disabled:opacity-30 sm:min-h-9 sm:min-w-9"
                 >
                   ←
                 </button>
@@ -307,7 +307,7 @@ export default function AlbumAnnotationsPage() {
                   onClick={() => setPhotoIndex((i) => Math.min(photos.length - 1, i + 1))}
                   aria-label="Ảnh tiếp theo"
                   disabled={photoIndex === photos.length - 1}
-                  className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white hover:bg-white/10 disabled:opacity-30"
+                  className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-sm text-white hover:bg-white/10 disabled:opacity-30 sm:min-h-9 sm:min-w-9"
                 >
                   →
                 </button>
@@ -324,7 +324,9 @@ export default function AlbumAnnotationsPage() {
                   <img
                     src={`${import.meta.env.VITE_API_BASE_URL}/api/albums/${albumId}/photos/${currentPhoto.id}/view?size=preview`}
                     alt={currentPhoto.original_base_filename}
-                    className="block w-full"
+                    width={1600}
+                    height={1067}
+                    className="block h-auto w-full"
                   />
                   <svg
                     className="pointer-events-none absolute inset-0 h-full w-full"
@@ -531,7 +533,7 @@ export default function AlbumAnnotationsPage() {
                       ? "Viết phản hồi cho khách…"
                       : "Thêm ghi chú nội bộ thợ…"
                   }
-                  className="flex-1 rounded-xl border border-white/10 bg-zinc-900/80 px-3 py-2 text-xs text-white placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="flex-1 rounded-xl border border-white/10 bg-zinc-900/80 px-3 py-2 text-xs text-white placeholder:text-zinc-500 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
                 />
                 <button
                   type="button"

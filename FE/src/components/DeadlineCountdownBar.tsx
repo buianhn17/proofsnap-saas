@@ -3,18 +3,8 @@
 // estimatedServerNow (giờ server ước tính, xem ClientAlbumContext.tsx) — không đọc thẳng
 // Date.now() để tránh lệch nếu khách chỉnh giờ máy.
 import { useEffect, useState } from "react";
-import { estimatedServerNow, useClientAlbum } from "../contexts/ClientAlbumContext";
-
-function formatRemaining(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return hours > 0
-    ? `${hours}:${pad(minutes)}:${pad(seconds)}`
-    : `${minutes}:${pad(seconds)}`;
-}
+import { estimatedServerNow, useClientAlbum } from "../contexts/clientAlbum";
+import { formatCountdown } from "../lib/formatCountdown";
 
 export default function DeadlineCountdownBar() {
   const { album, serverOffsetMs } = useClientAlbum();
@@ -29,7 +19,7 @@ export default function DeadlineCountdownBar() {
 
   if (album.is_locked) {
     return (
-      <div className="mb-6 rounded-xl border border-rose-500/30 bg-rose-950/60 px-4 py-2 text-center text-sm font-medium text-rose-300">
+      <div role="status" className="mb-6 rounded-xl border border-rose-500/30 bg-rose-950/60 px-4 py-2 text-center text-sm font-medium text-rose-300">
         Album đã bị khóa — không thể thả tim hoặc thêm ghi chú mới.
       </div>
     );
@@ -46,9 +36,16 @@ export default function DeadlineCountdownBar() {
   const remainingMs = Date.parse(album.selection_deadline) - estimatedServerNow(serverOffsetMs);
   const expired = remainingMs <= 0;
 
+  const deadlineText = new Date(album.selection_deadline).toLocaleString("vi-VN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+
   return (
     <div
-      className={`mb-6 rounded-xl border px-4 py-2 text-center text-sm font-medium ${
+      role="timer"
+      aria-label={expired ? "Đã hết hạn chọn ảnh" : `Hạn chọn ảnh: ${deadlineText}`}
+      className={`mb-6 rounded-xl border px-4 py-2 text-center text-sm font-medium text-balance ${
         expired
           ? "border-rose-500/30 bg-rose-950/60 text-rose-300"
           : remainingMs < 5 * 60 * 1000
@@ -60,7 +57,8 @@ export default function DeadlineCountdownBar() {
         ? "Đã hết hạn chọn ảnh — không thể thả tim hoặc thêm ghi chú mới."
         : (
             <>
-              Còn <span className="font-semibold tabular-nums">{formatRemaining(remainingMs)}</span> để chọn ảnh
+              Còn <span className="whitespace-nowrap font-semibold tabular-nums">{formatCountdown(remainingMs)}</span> để chọn ảnh
+              <span className="ml-1 hidden text-xs font-normal text-zinc-400 sm:inline">(hạn {deadlineText})</span>
             </>
           )}
     </div>

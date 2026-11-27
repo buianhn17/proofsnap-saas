@@ -3,6 +3,7 @@
 // nhập) — không có xử lý watermark riêng ở đây, tự động đúng theo từng khách.
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useFocusTrap } from "../lib/useFocusTrap";
 import { useEscapeKey } from "../lib/useEscapeKey";
 
 interface ComparePhoto {
@@ -43,6 +44,8 @@ export default function PhotoCompareView({
   isSelected,
   onToggleSelect,
 }: PhotoCompareViewProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
   useEscapeKey(onClose);
   const [synced, setSynced] = useState(true);
   const [sharedTransform, setSharedTransform] = useState<Transform>(IDENTITY);
@@ -116,7 +119,7 @@ export default function PhotoCompareView({
   ];
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="So sánh hai ảnh" className="fixed inset-0 z-50 flex flex-col bg-zinc-950">
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="So sánh hai ảnh" className="fixed inset-0 z-50 flex flex-col bg-zinc-950">
       <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-zinc-900 px-6">
         <button
           type="button"
@@ -168,6 +171,8 @@ export default function PhotoCompareView({
                   src={photoUrl(photo.id)}
                   alt={photo.original_base_filename}
                   draggable={false}
+                  width={1600}
+                  height={1067}
                   className="h-full w-full select-none object-contain"
                   style={{
                     transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,

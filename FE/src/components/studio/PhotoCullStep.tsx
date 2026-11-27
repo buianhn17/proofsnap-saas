@@ -577,6 +577,9 @@ function VirtualPhotoGrid({
   const rowHeight = Math.round((cardWidth * 2) / 3 + CARD_INFO_HEIGHT + GAP);
   const rowCount = Math.ceil(items.length / columns);
 
+  // TanStack Virtual trả về hàm không memo hoá được — chỉ ảnh hưởng React Compiler (dự án
+  // không bật). Ảo hoá danh sách là bắt buộc cho thư mục vài nghìn ảnh.
+  // oxlint-disable-next-line react/incompatible-library
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => scrollRef.current,
@@ -733,7 +736,7 @@ function PhotoPreview({ structure, path, onClose }: { structure: PhotoStructure 
 
   return (
     <Dialog open={path !== null} onClose={onClose} size="lg" title={file?.name ?? "Xem ảnh"} description={path ?? undefined}>
-      {url && <img src={url} alt={file?.name ?? ""} className="mx-auto max-h-[70dvh] w-auto rounded-xl object-contain" />}
+      {url && <img src={url} alt={file?.name ?? ""} width={1600} height={1067} className="mx-auto h-auto max-h-[70dvh] w-auto rounded-xl object-contain" />}
     </Dialog>
   );
 }

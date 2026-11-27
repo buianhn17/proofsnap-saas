@@ -1,38 +1,16 @@
-import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
+import { createBrowserRouter, Navigate } from "react-router-dom";
 import AdminLayout from "./layouts/AdminLayout";
 import ClientLayout from "./layouts/ClientLayout";
+import { AdminAuthScope, ClientAlbumScope } from "./layouts/RouteScopes";
 import RequireAuth from "./components/RequireAuth";
-import { AuthProvider } from "./contexts/AuthContext";
-import { ClientAlbumProvider } from "./contexts/ClientAlbumContext";
-import DeadlineCountdownBar from "./components/DeadlineCountdownBar";
 
 // Mỗi trang là một chunk riêng: khách vào Client Portal không phải tải code Admin và ngược lại.
 const page = (load: () => Promise<{ default: React.ComponentType }>) => async () => ({
   Component: (await load()).default,
 });
 
-function AdminAuthScope() {
-  return (
-    <AuthProvider>
-      <Outlet />
-    </AuthProvider>
-  );
-}
-
-// Bước 2.1 — mọi trang Client Portal SAU khi đã qua PIN (gallery, và về sau: lightbox ghi
-// chú, so sánh ảnh...) đều cần album + đếm ngược hạn chọn ảnh. Trang nhập PIN (index route)
-// đứng NGOÀI scope này vì chưa có phiên client để gọi GET album.
-function ClientAlbumScope() {
-  return (
-    <ClientAlbumProvider>
-      <DeadlineCountdownBar />
-      <Outlet />
-    </ClientAlbumProvider>
-  );
-}
-
 export const router = createBrowserRouter([
-  { path: "/", element: <Navigate to="/admin/albums" replace /> },
+  { path: "/", element: <Navigate to="/admin/dashboard" replace /> },
   // Trang thử nghiệm nội bộ Bước 1.3 (AI culling) — cố ý không nằm trong AdminLayout/nav,
   // chỉ truy cập trực tiếp qua URL khi cần chạy thử nghiệm/calibrate ngưỡng.
   // Lazy-load vì trang này kéo theo @mediapipe/tasks-vision, không nên tính vào bundle chính.
@@ -53,7 +31,10 @@ export const router = createBrowserRouter([
           {
             element: <AdminLayout />,
             children: [
-              { index: true, element: <Navigate to="albums" replace /> },
+              { index: true, element: <Navigate to="dashboard" replace /> },
+              { path: "dashboard", lazy: page(() => import("./pages/admin/DashboardPage")) },
+              { path: "clients", lazy: page(() => import("./pages/admin/ClientsPage")) },
+              { path: "settings", lazy: page(() => import("./pages/admin/SettingsPage")) },
               { path: "albums", lazy: page(() => import("./pages/admin/AlbumsPage")) },
               { path: "albums/new", lazy: page(() => import("./pages/admin/CreateAlbumPage")) },
               { path: "albums/:albumId", lazy: page(() => import("./pages/admin/AlbumDetailPage")) },

@@ -10,6 +10,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
 import { PIN_PATTERN } from "../../lib/validation";
+import { useFocusTrap } from "../../lib/useFocusTrap";
 import {
   COMPRESSION_PRESETS,
   getPresetLabel,
@@ -21,6 +22,8 @@ import PhotoUploadPanel, {
   type UploadQueueItem,
 } from "../../components/PhotoUploadPanel";
 import LocalFolderPicker from "../../components/LocalFolderPicker";
+import SwitchField from "../../components/SwitchField";
+import { UsersIcon } from "../../components/Icons";
 
 // Cùng thứ tự với BE (photoModel.js ALBUM_PHOTO_ORDER): theo giờ chụp, ảnh không có giờ chụp
 // xếp sau theo tên file.
@@ -55,7 +58,7 @@ function toDatetimeLocalValue(iso: string) {
 }
 
 const modalInputClass =
-  "w-full rounded-xl border border-white/10 bg-zinc-900/80 px-4 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 [color-scheme:dark]";
+  "w-full rounded-xl border border-white/10 bg-zinc-900/80 px-4 py-2.5 text-sm text-white placeholder:text-zinc-500 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500 [color-scheme:dark]";
 
 interface AlbumDetailLocationState {
   keptUploadItems?: UploadQueueItem[];
@@ -92,6 +95,10 @@ export default function AlbumDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   useEscapeKey(() => setPreviewPhoto(null), previewPhoto !== null);
   useEscapeKey(() => setIsEditing(false), isEditing);
+  const previewDialogRef = useRef<HTMLDivElement>(null);
+  const editDialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(previewDialogRef, previewPhoto !== null);
+  useFocusTrap(editDialogRef, isEditing);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -101,6 +108,7 @@ export default function AlbumDetailPage() {
   const [editMaxSelectable, setEditMaxSelectable] = useState("");
   const [editDeadline, setEditDeadline] = useState("");
   const [editWatermark, setEditWatermark] = useState(true);
+  const [editIsMinor, setEditIsMinor] = useState(false);
   const [editPreset, setEditPreset] = useState(2);
   const [editStatus, setEditStatus] = useState<"active" | "archived">("active");
   const [editIsLocked, setEditIsLocked] = useState(false);
@@ -177,6 +185,7 @@ export default function AlbumDetailPage() {
         : ""
     );
     setEditWatermark(album.watermark_enabled);
+    setEditIsMinor(album.is_minor_album);
     setEditPreset(album.compression_preset_id);
     setEditStatus(album.status);
     setEditIsLocked(album.is_locked);
@@ -211,6 +220,7 @@ export default function AlbumDetailPage() {
           ? new Date(editDeadline).toISOString()
           : null,
         watermark_enabled: editWatermark,
+        is_minor_album: editIsMinor,
         compression_preset_id: editPreset,
         status: editStatus,
         is_locked: editIsLocked,
@@ -314,7 +324,7 @@ export default function AlbumDetailPage() {
       <div className="flex items-center justify-between">
         <Link
           to="/admin/albums"
-          className="group inline-flex items-center gap-2 text-xs font-medium text-zinc-400 transition-colors hover:text-white"
+          className="group -ml-1 inline-flex min-h-11 items-center gap-2 rounded-lg px-1 text-sm font-medium text-zinc-400 transition-colors hover:text-white"
         >
           <svg className="h-4 w-4 transition-transform group-hover:-translate-x-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="19" y1="12" x2="5" y2="12" />
@@ -327,7 +337,7 @@ export default function AlbumDetailPage() {
         <button
           type="button"
           onClick={handleCopyLink}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/60 px-3 py-1.5 text-xs font-medium text-zinc-300 backdrop-blur-md transition hover:bg-white/10 hover:text-white"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/60 px-3 py-1.5 text-sm font-medium text-zinc-300 backdrop-blur-md transition hover:bg-white/10 hover:text-white sm:min-h-9"
         >
           <svg className="h-3.5 w-3.5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
@@ -340,12 +350,12 @@ export default function AlbumDetailPage() {
       {/* Main Album Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-white/10 pb-6">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="min-w-0 text-2xl font-bold tracking-tight text-white sm:text-3xl">
               {album.name}
             </h1>
             <span
-              className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wider ${
+              className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide ${
                 album.status === "active" && !album.is_locked
                   ? "border border-emerald-500/30 bg-emerald-950/50 text-emerald-300"
                   : "border border-white/10 bg-zinc-800 text-zinc-400"
@@ -353,8 +363,16 @@ export default function AlbumDetailPage() {
             >
               {album.status === "active" && !album.is_locked ? "Đang mở" : "Đã khóa"}
             </span>
+            {album.is_minor_album && (
+              <span
+                title="Album có người dưới 18 tuổi — không trích xuất dữ liệu khuôn mặt"
+                className="whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-950/50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-200"
+              >
+                Dưới 18 tuổi · Tắt tìm khuôn mặt
+              </span>
+            )}
           </div>
-          <p className="mt-1 text-xs text-zinc-400">
+          <p className="mt-1 text-pretty text-sm text-zinc-400">
             {photos.length} ảnh trong album • Preset: {getPresetLabel(album.compression_preset_id)} • Hạn chót: {formatDateTime(album.selection_deadline)}
           </p>
         </div>
@@ -363,7 +381,7 @@ export default function AlbumDetailPage() {
         <div className="flex flex-wrap items-center gap-2.5">
           <Link
             to={`/admin/albums/${album.id}/annotations`}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white sm:min-h-0"
           >
             <svg className="h-4 w-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M12 20h9" />
@@ -372,10 +390,18 @@ export default function AlbumDetailPage() {
             <span>Yêu cầu chỉnh sửa</span>
           </Link>
 
+          <Link
+            to={`/admin/clients?album_id=${album.id}`}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white sm:min-h-0"
+          >
+            <UsersIcon size={16} className="text-emerald-400" />
+            <span>Khách hàng</span>
+          </Link>
+
           <button
             type="button"
             onClick={startEditing}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/10 hover:text-white sm:min-h-0"
           >
             <svg className="h-4 w-4 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="3" />
@@ -436,7 +462,7 @@ export default function AlbumDetailPage() {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Tìm theo tên file (VD: DSC_01)…"
             aria-label="Tìm ảnh theo tên file"
-            className="w-full rounded-xl border border-white/10 bg-zinc-950/70 py-1.5 pl-9 pr-8 text-xs text-white placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="min-h-11 w-full rounded-xl border border-white/10 bg-zinc-950/70 py-1.5 pl-9 pr-8 text-base text-white sm:min-h-9 sm:text-sm placeholder:text-zinc-500 focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
           />
         </div>
       </div>
@@ -468,6 +494,8 @@ export default function AlbumDetailPage() {
               <img
                 src={`${import.meta.env.VITE_API_BASE_URL}/api/albums/${albumId}/photos/${photo.id}/view?size=thumb`}
                 alt={photo.original_base_filename}
+                width={400}
+                height={400}
                 loading="lazy"
                 decoding="async"
                 className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
@@ -480,8 +508,10 @@ export default function AlbumDetailPage() {
               <button
                 type="button"
                 onClick={() => toggleSelected(photo.id)}
-                aria-label="Chọn ảnh"
-                className={`absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-lg border text-xs transition ${
+                aria-label={`Chọn ảnh ${photo.original_base_filename}`}
+                aria-pressed={isSelected}
+                // Ô hiển thị 24px, vùng chạm mở rộng ra 44px bằng ::after (không đổi bố cục).
+                className={`absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-lg border text-xs transition after:absolute after:-inset-2.5 after:content-[''] ${
                   isSelected
                     ? "border-indigo-500 bg-indigo-600 text-white shadow-md shadow-indigo-500/50"
                     : "border-white/30 bg-black/40 text-transparent hover:border-white/60 group-hover:text-white/40"
@@ -497,30 +527,32 @@ export default function AlbumDetailPage() {
                 </span>
               )}
 
-              {/* Quick Preview Button on Hover */}
-              <button
-                type="button"
-                onClick={() => setPreviewPhoto(photo)}
-                className="absolute inset-x-4 top-1/2 -translate-y-1/2 flex items-center justify-center gap-1.5 rounded-xl border border-white/20 bg-black/60 py-1.5 text-[11px] font-medium text-white opacity-0 backdrop-blur-md transition duration-200 group-hover:opacity-100 hover:bg-black/80"
-              >
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-                <span>Xem lớn</span>
-              </button>
-
-              {/* Set Cover Button */}
-              {!isCover && (
+              {/* Thao tác nhanh: hiện khi hover/focus trên máy có chuột; luôn hiện trên màn hình
+                  cảm ứng (không có hover). Xếp cột ở đáy thẻ để 2 nút không bao giờ chồng nhau. */}
+              <div className="absolute inset-x-2 bottom-7 flex flex-col gap-1.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
                 <button
                   type="button"
-                  onClick={() => handleSetCoverPhoto(photo.id)}
-                  disabled={isSavingCover}
-                  className="absolute inset-x-2 bottom-7 rounded-lg border border-white/10 bg-zinc-900/90 px-2 py-1 text-[10px] font-medium text-zinc-200 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-white/10 hover:text-white disabled:opacity-50"
+                  onClick={() => setPreviewPhoto(photo)}
+                  aria-label={`Xem lớn ảnh ${photo.original_base_filename}`}
+                  className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-white/20 bg-black/60 py-1.5 text-xs font-medium text-white backdrop-blur-md hover:bg-black/80"
                 >
-                  {isSavingCover ? "Đang lưu…" : "Đặt làm ảnh bìa"}
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                  <span>Xem lớn</span>
                 </button>
-              )}
+                {!isCover && (
+                  <button
+                    type="button"
+                    onClick={() => handleSetCoverPhoto(photo.id)}
+                    disabled={isSavingCover}
+                    className="min-h-9 rounded-lg border border-white/10 bg-zinc-900/90 px-2 py-1 text-xs font-medium text-zinc-200 hover:bg-white/10 hover:text-white disabled:opacity-50"
+                  >
+                    {isSavingCover ? "Đang lưu…" : "Đặt làm ảnh bìa"}
+                  </button>
+                )}
+              </div>
 
               {/* Filename Tag */}
               <span className="pointer-events-none absolute inset-x-2 bottom-1.5 truncate text-[10px] font-mono text-zinc-300">
@@ -664,6 +696,7 @@ export default function AlbumDetailPage() {
       {/* Quick Lightbox Preview Modal */}
       {previewPhoto && (
         <div
+          ref={previewDialogRef}
           role="dialog"
           aria-modal="true"
           aria-label={`Xem trước ${previewPhoto.original_base_filename}`}
@@ -708,7 +741,9 @@ export default function AlbumDetailPage() {
               <img
                 src={`${import.meta.env.VITE_API_BASE_URL}/api/albums/${albumId}/photos/${previewPhoto.id}/view?size=full`}
                 alt={previewPhoto.original_base_filename}
-                className="max-h-[80vh] max-w-[90vw] object-contain"
+                width={previewPhoto.width ?? 1600}
+                height={previewPhoto.height ?? 1067}
+                className="h-auto max-h-[80vh] w-auto max-w-[90vw] object-contain"
               />
             </div>
           </div>
@@ -717,7 +752,7 @@ export default function AlbumDetailPage() {
 
       {/* Edit Album Configuration Modal */}
       {isEditing && (
-        <div role="dialog" aria-modal="true" aria-labelledby="edit-album-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in-up">
+        <div ref={editDialogRef} role="dialog" aria-modal="true" aria-labelledby="edit-album-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in-up">
           <div className="flex max-h-[90vh] w-full max-w-[620px] flex-col overflow-hidden rounded-3xl border border-white/10 bg-zinc-950/95 shadow-2xl shadow-black/80 backdrop-blur-2xl animate-scale-in">
             <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
               <div>
@@ -758,7 +793,7 @@ export default function AlbumDetailPage() {
               <div className="grid grid-cols-1 gap-5 p-6 pt-3 sm:grid-cols-2">
                 {/* Album Name */}
                 <div className="flex flex-col gap-1.5 sm:col-span-2">
-                  <label htmlFor="edit-name" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                  <label htmlFor="edit-name" className="text-sm font-medium text-zinc-300">
                     Tên album
                   </label>
                   <input id="edit-name" name="name" autoComplete="off"
@@ -772,7 +807,7 @@ export default function AlbumDetailPage() {
                 {/* PIN Code */}
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <label htmlFor="edit-pin" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                    <label htmlFor="edit-pin" className="text-sm font-medium text-zinc-300">
                       Mã PIN
                     </label>
                     <button
@@ -794,7 +829,7 @@ export default function AlbumDetailPage() {
 
                 {/* Max Selectable Photos */}
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="edit-max" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                  <label htmlFor="edit-max" className="text-sm font-medium text-zinc-300">
                     Số ảnh chọn tối đa
                   </label>
                   <input id="edit-max" name="max_selectable" inputMode="numeric"
@@ -809,7 +844,7 @@ export default function AlbumDetailPage() {
 
                 {/* Deadline */}
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="edit-deadline" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                  <label htmlFor="edit-deadline" className="text-sm font-medium text-zinc-300">
                     Hạn chót chọn ảnh
                   </label>
                   <input id="edit-deadline" name="deadline"
@@ -822,7 +857,7 @@ export default function AlbumDetailPage() {
 
                 {/* Status */}
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="edit-status" className="text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono">
+                  <label htmlFor="edit-status" className="text-sm font-medium text-zinc-300">
                     Trạng thái album
                   </label>
                   <select id="edit-status" name="status"
@@ -835,41 +870,43 @@ export default function AlbumDetailPage() {
                   </select>
                 </div>
 
-                {/* Lock Status Checkbox */}
-                <div className="sm:col-span-2">
-                  <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-white/10 bg-zinc-900/50 p-3.5 hover:bg-zinc-900/80">
-                    <div>
-                      <span className="text-xs font-semibold text-white">Khóa album (Ngừng chọn ảnh)</span>
-                      <p className="text-[11px] text-zinc-400">Khách vẫn có thể xem nhưng không thể thả tim hoặc đổi ảnh đã chọn</p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={editIsLocked}
-                      onChange={(e) => setEditIsLocked(e.target.checked)}
-                      className="h-4 w-4 rounded accent-indigo-500"
-                    />
-                  </label>
-                </div>
-
-                {/* Unlock ZIP Download for Client */}
-                <div className="sm:col-span-2">
-                  <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-white/10 bg-zinc-900/50 p-3.5 hover:bg-zinc-900/80">
-                    <div>
-                      <span className="text-xs font-semibold text-white">Mở khóa tải trọn bộ ảnh (.ZIP)</span>
-                      <p className="text-[11px] text-zinc-400">Cho phép khách tải gói ảnh đã hoàn thiện về máy tính</p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={editDownloadZipUnlocked}
-                      onChange={(e) => setEditDownloadZipUnlocked(e.target.checked)}
-                      className="h-4 w-4 rounded accent-indigo-500"
-                    />
-                  </label>
-                </div>
+                <SwitchField
+                  className="sm:col-span-2"
+                  label="Khoá album (ngừng chọn ảnh)"
+                  description="Khách vẫn xem được ảnh nhưng không thể thả tim hoặc đổi ảnh đã chọn."
+                  checked={editIsLocked}
+                  onChange={setEditIsLocked}
+                />
+                <SwitchField
+                  className="sm:col-span-2"
+                  label="Mở khoá tải trọn bộ ảnh (.ZIP)"
+                  description="Cho phép khách tải gói ảnh đã hoàn thiện về máy."
+                  checked={editDownloadZipUnlocked}
+                  onChange={setEditDownloadZipUnlocked}
+                />
+                <SwitchField
+                  className="sm:col-span-2"
+                  label="Bảo vệ bản quyền bằng watermark"
+                  description="Phủ mờ tên và SĐT của từng khách lên ảnh trong Client Portal."
+                  checked={editWatermark}
+                  onChange={setEditWatermark}
+                />
+                <SwitchField
+                  className="sm:col-span-2"
+                  tone="warning"
+                  label="Album có người dưới 18 tuổi (Tắt tìm kiếm khuôn mặt)"
+                  description={
+                    editIsMinor && !album.is_minor_album
+                      ? "Khi lưu, toàn bộ dữ liệu khuôn mặt đã trích xuất của album sẽ bị xoá vĩnh viễn và tính năng “Tìm ảnh bằng khuôn mặt” bị tắt."
+                      : "Dùng cho kỷ yếu, sự kiện học sinh: không trích xuất dữ liệu khuôn mặt, khách không thể tìm ảnh bằng khuôn mặt."
+                  }
+                  checked={editIsMinor}
+                  onChange={setEditIsMinor}
+                />
               </div>
 
               {saveError && (
-                <div className="mx-6 mb-4 rounded-xl border border-rose-500/20 bg-rose-950/40 p-3 text-xs text-rose-300">
+                <div role="alert" className="mx-6 mb-4 rounded-xl border border-rose-500/20 bg-rose-950/40 p-3 text-sm text-rose-300">
                   {saveError}
                 </div>
               )}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
-import { useAuth } from "../../contexts/AuthContext";
+import { useAuth } from "../../contexts/auth";
 import {
   OVERNIGHT_BEFORE,
   buildShootEndTime,
@@ -647,7 +647,7 @@ function CreateShowDialog({
             spellCheck={false}
             value={className}
             onChange={(e) => setClassName(e.target.value)}
-            placeholder="VD: 12A5"
+            placeholder="VD: 12A5…"
             className={dialogInputClass}
           />
         </div>
@@ -662,7 +662,7 @@ function CreateShowDialog({
             list={`${id}-schools`}
             value={schoolName}
             onChange={(e) => setSchoolName(e.target.value)}
-            placeholder="VD: THPT Kim Liên"
+            placeholder="VD: THPT Kim Liên…"
             className={dialogInputClass}
           />
           <datalist id={`${id}-schools`}>

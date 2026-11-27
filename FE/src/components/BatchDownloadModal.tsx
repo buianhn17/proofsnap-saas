@@ -9,6 +9,7 @@
 // Trình duyệt không chia sẻ được file (PC, trình duyệt cũ) -> tải file ZIP từ server.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusTrap } from "../lib/useFocusTrap";
 import {
   ImageFetchError,
   fetchImageAsFile,
@@ -64,6 +65,8 @@ export default function BatchDownloadModal({
   onQualityChange,
   zipFallbackUrl,
 }: BatchDownloadModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, isOpen);
   const batches = useMemo(() => chunk(selectedPhotos, BATCH_SIZE), [selectedPhotos]);
   // Tính 1 lần lúc mở modal — không đổi trong suốt phiên tải.
   const shareSupported = useMemo(
@@ -107,9 +110,8 @@ export default function BatchDownloadModal({
         onlyMissing && filesRef.current ? filesRef.current : new Array(batch.length).fill(null);
       filesRef.current = files;
       const errors: ImageFetchError[] = [];
-      setStatus("preparing");
-      setFailures([]);
-      setProgress(files.filter(Boolean).length);
+      // Không setState đồng bộ ở đây: hàm này được gọi trong effect lúc mở modal (state lúc
+      // mount đã là "preparing"/0/[]). Bên gọi từ sự kiện tự reset bằng resetBatchUi().
 
       const releaseWakeLock = await keepScreenAwake();
       try {
@@ -148,12 +150,29 @@ export default function BatchDownloadModal({
     [batches]
   );
 
+  /** Đưa giao diện về trạng thái "đang nạp" trước khi nạp lại 1 nhóm từ thao tác người dùng. */
+  function resetBatchUi(alreadyLoaded: number) {
+    setStatus("preparing");
+    setFailures([]);
+    setProgress(alreadyLoaded);
+  }
+
   // Mở modal -> nạp sẵn nhóm 1. Không tự reset state ở đây: bên gọi remount modal (đổi `key`)
   // khi đổi chất lượng/danh sách ảnh, nên mỗi lần mở luôn là state sạch từ nhóm 1. Cleanup
   // huỷ mọi request đang chạy và nhả File khi đóng modal/unmount.
+  // Việc nạp là bất đồng bộ (mạng) nên khởi động ở microtask sau commit: effect không gọi
+  // setState đồng bộ (tránh render dây chuyền), và cờ `cancelled` chặn lượt nạp đã bị huỷ
+  // (StrictMode mount 2 lần, hoặc đóng modal ngay) chạy sau khi cleanup.
   useEffect(() => {
-    if (isOpen && shareSupported && batches.length > 0) prepareBatch(0);
-    return releaseBatch;
+    if (!isOpen || !shareSupported || batches.length === 0) return releaseBatch;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void prepareBatch(0);
+    });
+    return () => {
+      cancelled = true;
+      releaseBatch();
+    };
   }, [isOpen, shareSupported, batches, prepareBatch, releaseBatch]);
 
   // Đóng modal bằng phím Esc.
@@ -184,6 +203,7 @@ export default function BatchDownloadModal({
           `Đã xong nhóm ${currentBatchIndex + 1}. Đang chuẩn bị nhóm ${nextIndex + 1} — bấm tải khi nút sáng lên.`
         );
         setCurrentBatchIndex(nextIndex);
+        resetBatchUi(0);
         prepareBatch(nextIndex);
       } else {
         setNotice(null);
@@ -211,6 +231,7 @@ export default function BatchDownloadModal({
 
   return (
     <div
+      ref={dialogRef}
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center"
       role="dialog"
       aria-modal="true"
@@ -339,7 +360,10 @@ export default function BatchDownloadModal({
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => prepareBatch(currentBatchIndex, true)}
+                    onClick={() => {
+                      resetBatchUi((filesRef.current ?? []).filter(Boolean).length);
+                      prepareBatch(currentBatchIndex, true);
+                    }}
                     className="rounded-lg border border-rose-300/40 px-3 py-1.5 font-medium"
                   >
                     Thử lại

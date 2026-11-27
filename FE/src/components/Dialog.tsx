@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useFocusTrap } from "../lib/useFocusTrap";
 import { useEscapeKey } from "../lib/useEscapeKey";
 import { XIcon } from "./Icons";
 
@@ -35,6 +36,7 @@ export default function Dialog({
   const panelRef = useRef<HTMLDivElement>(null);
   useEscapeKey(onClose, open && dismissible);
 
+  useFocusTrap(panelRef);
   // Focus vào ô nhập đầu tiên (hoặc chính panel) khi mở, trả focus về chỗ cũ khi đóng.
   useEffect(() => {
     if (!open) return;
@@ -107,7 +109,7 @@ export default function Dialog({
 }
 
 export const dialogInputClass =
-  "w-full rounded-xl border border-white/10 bg-zinc-900/80 px-4 py-3 text-sm text-white placeholder:text-zinc-500 transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 aria-[invalid=true]:border-rose-500/60 [color-scheme:dark]";
+  "w-full rounded-xl border border-white/10 bg-zinc-900/80 px-4 py-3 text-sm text-white placeholder:text-zinc-500 transition focus-visible:border-indigo-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500 aria-[invalid=true]:border-rose-500/60 [color-scheme:dark]";
 
 export const dialogLabelClass = "text-xs font-semibold uppercase tracking-wider text-zinc-400 font-mono";
 

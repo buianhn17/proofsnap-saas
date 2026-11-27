@@ -194,6 +194,8 @@ export default function AlbumCullPage() {
   // cần đụng tới khi thật sự upload (Bước 2.3).
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [previews, setPreviews] = useState<Record<string, string>>({});
+  // Object URL của thumbnail/preview đã tạo — revoke hết khi rời trang. Mảng được push thêm,
+  // KHÔNG gán lại ref.current, nên cleanup đọc đúng danh sách cuối cùng.
   const thumbnailUrlsRef = useRef<string[]>([]);
 
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
@@ -222,8 +224,9 @@ export default function AlbumCullPage() {
   }, [albumId]);
 
   useEffect(() => {
+    const createdUrls = thumbnailUrlsRef.current;
     return () => {
-      thumbnailUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      createdUrls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
 
@@ -907,9 +910,11 @@ export default function AlbumCullPage() {
           <img
             src={thumbnails[path]}
             alt={path}
+            width={400}
+            height={400}
             loading="lazy"
             decoding="async"
-            className="aspect-square w-full object-cover"
+            className="aspect-square h-auto w-full object-cover"
           />
         )}
         {overridden && (
@@ -1633,7 +1638,9 @@ export default function AlbumCullPage() {
                     src={readyPreviewSrc}
                     alt={currentItem.file.file.name}
                     onDoubleClick={handleReviewImageDoubleClick}
-                    className={`max-h-full max-w-full cursor-zoom-in rounded-xl border border-white/10 object-contain shadow-2xl [animation:fade-in_180ms_ease-out] ${
+                    width={1600}
+                    height={1067}
+                    className={`h-auto max-h-full w-auto max-w-full cursor-zoom-in rounded-xl border border-white/10 object-contain shadow-2xl [animation:fade-in_180ms_ease-out] ${
                       reviewZoom ? "invisible" : ""
                     }`}
                   />
@@ -1779,7 +1786,9 @@ export default function AlbumCullPage() {
                           <img
                             src={faceCrops[index]}
                             alt={`Khuôn mặt ${index + 1}`}
-                            className={`aspect-square w-full rounded-xl border object-cover ring-2 ${EYE_RING[face.eyeStatus]}`}
+                            width={160}
+                            height={160}
+                            className={`aspect-square h-auto w-full rounded-xl border object-cover ring-2 ${EYE_RING[face.eyeStatus]}`}
                           />
                         )}
                         <div className="mt-2 flex items-center justify-between text-xs">
@@ -1855,6 +1864,8 @@ export default function AlbumCullPage() {
                         <img
                           src={thumbnails[path]}
                           alt=""
+                          width={200}
+                          height={200}
                           loading="lazy"
                           decoding="async"
                           className="h-full w-full object-cover"

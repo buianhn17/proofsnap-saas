@@ -18,7 +18,11 @@ function crossOriginIsolationForCullingTest(): Plugin {
     url.startsWith('/dev/culling-test') ||
     cullPageRegex.test(url) ||
     url.includes('/lib/culling/') ||
-    url.includes('culling.worker')
+    url.includes('culling.worker') ||
+    // Worker nén ảnh trước khi upload cũng được tạo từ tài liệu đã isolate (trang Cull điều
+    // hướng SPA sang trang album) nên script của nó cũng phải mang COEP, nếu không bị chặn.
+    url.includes('/lib/upload/') ||
+    url.includes('uploadPrep.worker')
 
   const setHeaders = (req: { url?: string }, res: { setHeader: (k: string, v: string) => void }, next: () => void) => {
     if (req.url && shouldIsolate(req.url)) {

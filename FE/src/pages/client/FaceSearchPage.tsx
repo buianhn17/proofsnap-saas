@@ -7,9 +7,11 @@ import { isAxiosError } from "axios";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
-import { CameraIcon, ScanFaceIcon, ShieldCheckIcon } from "../../components/Icons";
-import { useClientAlbum } from "../../contexts/ClientAlbumContext";
+import { CameraIcon, HeartIcon, ScanFaceIcon, ShieldCheckIcon } from "../../components/Icons";
+import { useClientAlbum } from "../../contexts/clientAlbum";
 import PhotoAnnotationLightbox from "../../components/PhotoAnnotationLightbox";
+import { useClientSelection } from "../../contexts/clientSelection";
+import { useFocusTrap } from "../../lib/useFocusTrap";
 
 interface ConsentStatus {
   feature_available: boolean;
@@ -56,9 +58,11 @@ export default function FaceSearchPage() {
   const [results, setResults] = useState<FaceSearchResultPhoto[] | null>(null);
   const [selfiePreviewUrl, setSelfiePreviewUrl] = useState<string | null>(null);
   const [searchedAt, setSearchedAt] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openPhotoId, setOpenPhotoId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const consentRef = useRef<HTMLDivElement>(null);
+  const { selected, toggle: toggleHeart, hydrate, completedAt, selectedCount, maxSelectable } = useClientSelection();
+  useFocusTrap(consentRef, status !== null && status.feature_available && !status.consented);
 
   useEffect(() => {
     if (!albumId) return;
@@ -76,12 +80,22 @@ export default function FaceSearchPage() {
   useEffect(() => {
     if (!albumId) return;
     api
-      .get<{ photos: unknown[] }>(`/api/public/albums/${albumId}/photos`)
-      .then(({ data }) => setTotalPhotoCount(data.photos.length))
+      .get<{
+        photos: { id: string; is_selected?: boolean }[];
+        selection?: { max_selectable_photos: number | null; completed_at?: string | null };
+      }>(`/api/public/albums/${albumId}/photos`)
+      .then(({ data }) => {
+        setTotalPhotoCount(data.photos.length);
+        hydrate(
+          data.photos.filter((p) => p.is_selected).map((p) => p.id),
+          data.selection?.max_selectable_photos ?? null,
+          data.selection?.completed_at ?? null
+        );
+      })
       .catch(() => {
         // Không chặn tìm ảnh nếu riêng số đếm tổng ảnh lỗi tải.
       });
-  }, [albumId]);
+  }, [albumId, hydrate]);
 
   async function handleAgree() {
     if (!albumId || !agreeChecked || !ageChoice) return;
@@ -152,23 +166,6 @@ export default function FaceSearchPage() {
     setSearchedAt(null);
   }
 
-  async function toggleHeart(photoId: string) {
-    if (!albumId) return;
-    try {
-      const { data } = await api.post<{ selected: boolean }>(
-        `/api/public/albums/${albumId}/photos/${photoId}/select`
-      );
-      setSelected((prev) => {
-        const next = new Set(prev);
-        if (data.selected) next.add(photoId);
-        else next.delete(photoId);
-        return next;
-      });
-    } catch {
-      // Bỏ qua lỗi 1 lượt thả tim, không chặn xem kết quả còn lại.
-    }
-  }
-
   const sortedResults = useMemo(
     () => (results ? [...results].sort((a, b) => b.similarity - a.similarity) : null),
     [results]
@@ -202,14 +199,14 @@ export default function FaceSearchPage() {
 
   if (!status.consented) {
     return (
-      <div role="dialog" aria-modal="true" aria-label="Đồng ý tìm ảnh bằng khuôn mặt" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-md">
-        <div className="w-full max-w-[600px] animate-scale-in rounded-3xl border border-white/10 bg-zinc-900/95 p-8 shadow-2xl shadow-black/60">
+      <div ref={consentRef} role="dialog" aria-modal="true" aria-label="Đồng ý tìm ảnh bằng khuôn mặt" className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-md sm:items-center sm:px-4">
+        <div className="max-h-[92dvh] w-full max-w-[600px] animate-scale-in overflow-y-auto overscroll-contain rounded-t-3xl border border-white/10 bg-zinc-900/95 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl shadow-black/60 sm:rounded-3xl sm:p-8">
           <div className="flex flex-col items-center text-center">
             <span className="flex size-14 items-center justify-center rounded-2xl border border-white/10 bg-zinc-950 text-indigo-300">
               <ScanFaceIcon size={26} />
             </span>
-            <h1 className="mt-4 text-2xl font-semibold text-zinc-100">
-              Yêu cầu xin phép xử lý dữ liệu
+            <h1 className="mt-4 text-balance text-xl font-semibold text-zinc-100 sm:text-2xl">
+              Đồng ý xử lý dữ liệu khuôn mặt
             </h1>
           </div>
 
@@ -220,20 +217,46 @@ export default function FaceSearchPage() {
               selfie bạn cung cấp.
             </p>
 
-            <div className="mt-4 flex gap-3 rounded-lg border border-white/10 bg-zinc-950 p-4">
-              <ShieldCheckIcon size={18} className="mt-0.5 shrink-0 text-emerald-400" />
-              <p className="text-sm text-zinc-400">
-                <strong className="text-zinc-100">Quyền riêng tư được bảo đảm:</strong> Dữ
-                liệu sinh trắc học của bạn chỉ được dùng cho phiên làm việc hiện tại, không
-                được lưu trữ lại dưới bất kỳ hình thức nào, và được truyền tải qua kết nối mã
-                hóa HTTPS.
-              </p>
-            </div>
+            {/* Mô tả CHÍNH XÁC 2 luồng xử lý dữ liệu khuôn mặt (Luật 91/2025/QH15 — đồng ý phải
+                dựa trên thông tin đúng): selfie xử lý tạm trong bộ nhớ; ảnh album được lập chỉ
+                mục khuôn mặt và lưu trong phạm vi album. */}
+            <ul className="mt-4 flex flex-col gap-3">
+              <li className="flex gap-3 rounded-lg border border-white/10 bg-zinc-950 p-4">
+                <ShieldCheckIcon size={18} className="mt-0.5 shrink-0 text-emerald-400" />
+                <p className="text-pretty text-sm leading-relaxed text-zinc-400">
+                  <strong className="text-zinc-100">Ảnh selfie của bạn chỉ được xử lý tạm thời.</strong>{" "}
+                  Máy chủ đọc ảnh trong bộ nhớ, trích đặc trưng khuôn mặt để so khớp rồi huỷ ngay khi
+                  trả kết quả. Ảnh selfie và đặc trưng khuôn mặt từ selfie không được lưu xuống ổ đĩa
+                  hay cơ sở dữ liệu — hệ thống chỉ ghi lại thời điểm tìm và số ảnh khớp.
+                </p>
+              </li>
+              <li className="flex gap-3 rounded-lg border border-white/10 bg-zinc-950 p-4">
+                <ScanFaceIcon size={18} className="mt-0.5 shrink-0 text-indigo-300" />
+                <p className="text-pretty text-sm leading-relaxed text-zinc-400">
+                  <strong className="text-zinc-100">Ảnh trong album đã được lập chỉ mục khuôn mặt.</strong>{" "}
+                  Khi nhiếp ảnh gia tải ảnh lên, hệ thống lưu đặc trưng khuôn mặt (dãy số, không phải
+                  hình ảnh) của những người xuất hiện trong ảnh. Dữ liệu này chỉ dùng để tìm ảnh trong
+                  chính album này, không dùng cho album khác hay mục đích khác, và bị xoá cùng ảnh
+                  hoặc album. Album có người dưới 18 tuổi không được lập chỉ mục.
+                </p>
+              </li>
+              <li className="flex gap-3 rounded-lg border border-white/10 bg-zinc-950 p-4">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 shrink-0 text-zinc-400">
+                  <path d="M12 8v4l3 3" />
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+                <p className="text-pretty text-sm leading-relaxed text-zinc-400">
+                  Lựa chọn đồng ý của bạn được ghi lại kèm thời điểm, địa chỉ IP và trình duyệt làm
+                  bằng chứng. Bạn có thể rút lại đồng ý bất kỳ lúc nào trên trang này. Dữ liệu được
+                  truyền qua kết nối mã hoá HTTPS.
+                </p>
+              </li>
+            </ul>
 
-            <div className="mt-5">
-              <p className="text-base font-semibold text-zinc-100">Xác nhận độ tuổi</p>
-              <div className="mt-2 flex gap-6">
-                <label className="flex items-center gap-2 text-sm text-zinc-100">
+            <fieldset className="mt-5">
+              <legend className="text-base font-semibold text-zinc-100">Xác nhận độ tuổi</legend>
+              <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1">
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-zinc-100">
                   <input
                     type="radio"
                     name="age-choice"
@@ -242,7 +265,7 @@ export default function FaceSearchPage() {
                   />
                   Trên 18 tuổi
                 </label>
-                <label className="flex items-center gap-2 text-sm text-zinc-100">
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-zinc-100">
                   <input
                     type="radio"
                     name="age-choice"
@@ -252,9 +275,9 @@ export default function FaceSearchPage() {
                   Dưới 18 tuổi
                 </label>
               </div>
-            </div>
+            </fieldset>
 
-            <label className="mt-5 flex items-start gap-2 rounded-lg border border-white/10 bg-zinc-950 p-4 text-sm text-zinc-100">
+            <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-zinc-950 p-4 text-sm text-zinc-100">
               <input
                 type="checkbox"
                 checked={agreeChecked}
@@ -262,13 +285,13 @@ export default function FaceSearchPage() {
                 className="mt-0.5"
               />
               <span>
-                Tôi đồng ý với việc xử lý dữ liệu khuôn mặt để tìm kiếm hình ảnh trong bộ sưu
-                tập này theo các điều khoản bảo mật đã nêu.
+                Tôi đồng ý cho LensProof xử lý ảnh selfie của tôi và so khớp với dữ liệu khuôn mặt
+                đã lập chỉ mục của album này, theo đúng các nội dung đã nêu ở trên.
               </span>
             </label>
 
             {consentError && (
-              <p className="mt-3 text-sm text-red-300">{consentError}</p>
+              <p role="alert" className="mt-3 text-sm text-red-300">{consentError}</p>
             )}
           </div>
 
@@ -276,7 +299,7 @@ export default function FaceSearchPage() {
             {albumId && (
               <Link
                 to={`/a/${albumId}/gallery`}
-                className="flex flex-1 items-center justify-center rounded-lg border border-white/10 px-4 py-2.5 text-sm font-semibold text-zinc-100 hover:bg-zinc-800"
+                className="flex h-11 flex-1 items-center justify-center rounded-lg border border-white/10 px-4 text-sm font-semibold text-zinc-100 hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
               >
                 Bỏ qua
               </Link>
@@ -285,20 +308,12 @@ export default function FaceSearchPage() {
               type="button"
               onClick={handleAgree}
               disabled={!agreeChecked || !ageChoice || submittingConsent}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-500 px-4 text-sm font-semibold text-white hover:bg-indigo-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {submittingConsent ? "Đang xử lý…" : "Đồng ý & Tiếp tục →"}
+              {submittingConsent ? "Đang xử lý…" : "Đồng ý và tiếp tục"}
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={handleRevokeConsent}
-            disabled={revoking}
-            className="mx-auto mt-4 block text-center text-sm text-indigo-300 hover:underline disabled:opacity-50"
-          >
-            {revoking ? "Đang xử lý…" : "Rút lại đồng ý và xóa dữ liệu khuôn mặt của tôi"}
-          </button>
         </div>
       </div>
     );
@@ -322,7 +337,9 @@ export default function FaceSearchPage() {
           {selfiePreviewUrl && (
             <img
               src={selfiePreviewUrl}
-              alt="Selfie"
+              alt="Ảnh selfie bạn vừa chọn"
+              width={64}
+              height={64}
               className="size-16 shrink-0 rounded-lg border border-white/10 object-cover"
             />
           )}
@@ -351,7 +368,9 @@ export default function FaceSearchPage() {
             {selfiePreviewUrl && (
               <img
                 src={selfiePreviewUrl}
-                alt="Selfie"
+                alt="Ảnh selfie bạn vừa chọn"
+                width={56}
+                height={56}
                 className="size-14 shrink-0 rounded-lg border border-white/10 object-cover"
               />
             )}
@@ -411,25 +430,29 @@ export default function FaceSearchPage() {
                   <img
                     src={`${import.meta.env.VITE_API_BASE_URL}/api/public/albums/${albumId}/photos/${photo.id}/view?size=thumb`}
                     alt={photo.original_base_filename}
+                    width={400}
+                    height={400}
                     loading="lazy"
                     decoding="async"
-                    className="aspect-square w-full object-cover"
+                    className="aspect-square h-auto w-full object-cover"
                   />
                 </button>
-                <span className="absolute left-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-zinc-100">
+                <span className="pointer-events-none absolute left-2 top-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-zinc-100">
                   Khớp {Math.round(photo.similarity * 100)}%
                 </span>
                 <button
                   type="button"
                   onClick={() => toggleHeart(photo.id)}
-                  aria-label="Thả tim"
-                  className={`absolute right-2 top-2 flex size-7 items-center justify-center rounded-full text-base shadow ${
+                  aria-pressed={selected.has(photo.id)}
+                  aria-label={`${selected.has(photo.id) ? "Bỏ chọn" : "Chọn"} ảnh ${photo.original_base_filename}`}
+                  disabled={Boolean(completedAt)}
+                  className={`absolute right-1.5 top-1.5 flex size-11 items-center justify-center rounded-full shadow transition-transform active:scale-95 disabled:opacity-40 md:size-10 ${
                     selected.has(photo.id)
-                      ? "bg-red-500 text-white"
-                      : "bg-black/50 text-zinc-100"
+                      ? "bg-rose-500 text-white"
+                      : "bg-black/55 text-zinc-100"
                   }`}
                 >
-                  {selected.has(photo.id) ? "♥" : "♡"}
+                  <HeartIcon size={18} fill={selected.has(photo.id) ? "currentColor" : "none"} />
                 </button>
                 <p className="truncate px-2 py-1.5 text-xs text-zinc-400">
                   {photo.original_base_filename}
@@ -449,6 +472,8 @@ export default function FaceSearchPage() {
             albumName={album.name}
             isSelected={selected.has(openPhotoId)}
             onToggleSelect={() => toggleHeart(openPhotoId)}
+            selectionSummary={{ selectedCount, maxSelectable }}
+            readOnly={Boolean(completedAt)}
             onClose={() => setOpenPhotoId(null)}
           />
         )}
@@ -466,14 +491,14 @@ export default function FaceSearchPage() {
         khoảnh khắc của bạn trong sự kiện này.
       </p>
 
-      <label className="mt-6 flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-white/10 bg-zinc-900 px-6 py-12 text-center hover:border-white/20">
+      <label className="mt-6 flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-white/10 bg-zinc-900 px-6 py-12 text-center transition-colors hover:border-white/20 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-indigo-400">
         <input
           ref={inputRef}
           type="file"
           accept="image/jpeg"
           disabled={searching}
           onChange={(e) => handleFileSelected(e.target.files?.[0])}
-          className="hidden"
+          className="sr-only"
         />
         <span className="flex size-12 items-center justify-center rounded-2xl border border-white/10 bg-zinc-950 text-indigo-300">
           <CameraIcon size={22} />
@@ -484,9 +509,29 @@ export default function FaceSearchPage() {
       </label>
 
       {searchError && (
-        <p className="mt-4 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
+        <p role="alert" className="mt-4 rounded-md bg-red-950/50 px-3 py-2 text-sm text-red-300">
           {searchError}
         </p>
+      )}
+
+      <div className="mt-6 flex flex-col gap-2 rounded-lg border border-white/10 bg-zinc-900/60 p-4 text-sm text-zinc-400 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-pretty">
+          Ảnh selfie chỉ được xử lý tạm trong bộ nhớ và huỷ ngay sau khi tìm.
+          {status.consented_at && (
+            <> Bạn đã đồng ý lúc {new Date(status.consented_at).toLocaleString("vi-VN")}.</>
+          )}
+        </p>
+        <button
+          type="button"
+          onClick={handleRevokeConsent}
+          disabled={revoking}
+          className="h-11 shrink-0 rounded-lg border border-white/10 px-3 font-medium text-zinc-200 transition-colors hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 disabled:opacity-50 sm:h-10"
+        >
+          {revoking ? "Đang xử lý…" : "Rút lại đồng ý"}
+        </button>
+      </div>
+      {consentError && (
+        <p role="alert" className="mt-3 text-sm text-red-300">{consentError}</p>
       )}
     </div>
   );
