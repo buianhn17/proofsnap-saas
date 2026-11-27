@@ -1,0 +1,4 @@
+shots/
+.seed.json
+responsive-report*.json
+node_modules

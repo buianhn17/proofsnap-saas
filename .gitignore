@@ -3,3 +3,6 @@
 npm-debug.log
 *.log
 .DS_Store
+
+# Tai lieu bao cao do an (khong dua len repo)
+_report_lensproof/
