@@ -1,8 +1,11 @@
 const express = require("express");
+const { registerUuidParams } = require("../middlewares/validateUuidParams");
 const studioShowController = require("../controllers/studioShowController");
 const { requireAuth } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
+// L4 — ID sai định dạng trả 404 JSON thay vì lỗi 22P02 (500) từ PostgreSQL.
+registerUuidParams(router, ["showId", "submissionId"]);
 
 // Chủ Studio và thợ ảnh/thợ quay đều dùng tài khoản photographer hiện có (cookie session_token).
 router.use(requireAuth);

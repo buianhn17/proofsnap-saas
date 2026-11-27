@@ -1,10 +1,13 @@
 const express = require("express");
+const { registerUuidParams } = require("../middlewares/validateUuidParams");
 const multer = require("multer");
 const clientController = require("../controllers/clientController");
 const { requireClientAuth } = require("../middlewares/clientAuthMiddleware");
 const { enforceAlbumNotExpired } = require("../middlewares/albumDeadlineMiddleware");
 
 const router = express.Router();
+// L4 — ID sai định dạng trả 404 JSON thay vì lỗi 22P02 (500) từ PostgreSQL.
+registerUuidParams(router, ["albumId", "photoId"]);
 
 // Bước 3.3 — upload ảnh selfie khách để tìm ảnh. Giới hạn nhỏ hơn ảnh gốc PTG upload (đủ
 // cho 1 khuôn mặt rõ nét, không cần ảnh chụp studio full-res).
@@ -46,6 +49,8 @@ const uploadSelfie = multer({
  *         description: Không tìm thấy album
  *       423:
  *         description: Album đã bị khóa
+ *       429:
+ *         description: TOO_MANY_PIN_ATTEMPTS — sai PIN 10 lần, khoá 15 phút theo album + IP (header Retry-After)
  */
 router.post("/:albumId/verify-pin", clientController.verifyPin);
 
@@ -135,7 +140,9 @@ router.get("/:albumId/photos/:photoId/view", requireClientAuth, clientController
  *           type: string
  *     responses:
  *       200:
- *         description: Trạng thái thả tim sau khi toggle
+ *         description: Trạng thái thả tim sau khi toggle, kèm selected_count và max_selectable_photos
+ *       409:
+ *         description: SELECTION_LIMIT_REACHED — đã chọn đủ max_selectable_photos ảnh (FR-07)
  *       401:
  *         description: Client chưa xác thực
  *       403:
@@ -149,6 +156,39 @@ router.post(
   enforceAlbumNotExpired,
   clientController.toggleSelection
 );
+
+/**
+ * @swagger
+ * /api/public/albums/{albumId}/complete:
+ *   post:
+ *     summary: Khách xác nhận hoàn tất chọn ảnh (mục 5.2) — khoá thả tim/ghi chú tới khi mở lại
+ *     tags: [Client Portal]
+ *     security:
+ *       - clientCookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *     responses:
+ *       200: { description: Đã hoàn tất }
+ *       403: { description: Album đã hết hạn hoặc bị khoá }
+ *       409: { description: NO_SELECTION — chưa chọn ảnh nào }
+ */
+router.post("/:albumId/complete", requireClientAuth, enforceAlbumNotExpired, clientController.completeSelection);
+
+/**
+ * @swagger
+ * /api/public/albums/{albumId}/complete/reopen:
+ *   post:
+ *     summary: Khách mở lại lựa chọn để sửa (chỉ khi album chưa hết hạn/khoá)
+ *     tags: [Client Portal]
+ *     security:
+ *       - clientCookieAuth: []
+ *     parameters:
+ *       - $ref: '#/components/parameters/AlbumId'
+ *     responses:
+ *       200: { description: Đã mở lại }
+ *       403: { description: Album đã hết hạn hoặc bị khoá }
+ */
+router.post("/:albumId/complete/reopen", requireClientAuth, enforceAlbumNotExpired, clientController.reopenSelection);
 
 /**
  * @swagger

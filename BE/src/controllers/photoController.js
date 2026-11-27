@@ -6,6 +6,7 @@ const sceneModel = require("../models/sceneModel");
 const burstClusterModel = require("../models/burstClusterModel");
 const redis = require("../config/redis");
 const { resolveSizePreset, resizeToLongEdge } = require("../services/thumbnailService");
+const { setImageResourcePolicy } = require("../utils/imageHeaders");
 const { saveCrops, enqueueFaceIndex } = require("../services/faceIndexQueue");
 const {
   uploadJpeg,
@@ -134,10 +135,15 @@ async function upload(req, res, next) {
       if (existing) return res.status(200).json({ photo: existing });
     }
 
+    // L7 (FR-05, NFR-03) — album có người dưới 18 tuổi: KHÔNG dò mặt, không lưu vùng cắt khuôn
+    // mặt, không trích embedding (tối thiểu hoá dữ liệu sinh trắc học theo Luật 91/2025/QH15).
+    // Vùng cắt trình duyệt gửi kèm (nếu có) bị bỏ qua, chỉ tồn tại trong RAM của request này.
+    const skipFaceIndex = album.is_minor_album === true;
+
     // Vùng cắt khuôn mặt lấy từ ảnh gốc (xem detectFacesInCrops). face_crops_provided=true
     // với 0 vùng cắt = client đã dò, ảnh không có mặt người.
     const cropFiles = req.files?.face_crops ?? [];
-    const faceCropRegions = req.body.face_crops_provided === "true"
+    const faceCropRegions = !skipFaceIndex && req.body.face_crops_provided === "true"
       ? parseFaceCropRegions(req.body.face_crop_regions, cropFiles.length)
       : null;
 
@@ -194,6 +200,7 @@ async function upload(req, res, next) {
         burstClusterId,
         isBestInCluster,
         clientUploadId,
+        faceIndexStatus: skipFaceIndex ? "skipped" : "pending",
       });
     } catch (insertError) {
       // 2 request cùng client_upload_id chạy chồng nhau: request kia đã tạo ảnh trước — xoá
@@ -217,6 +224,9 @@ async function upload(req, res, next) {
     // Bước 3.2 — embedding khuôn mặt cho AI Face Search (Bước 3.3) trích NỀN sau khi trả lời
     // (faceIndexQueue.js), không bắt trình duyệt chờ. Vùng cắt ghi ra đĩa trước khi trả lời để
     // không mất nếu server tắt ngang; ghi lỗi thì hàng đợi dò mặt trên ảnh đã upload.
+    if (skipFaceIndex) {
+      return res.status(201).json({ photo });
+    }
     if (faceCropRegions) {
       await saveCrops(
         photo.id,
@@ -250,6 +260,7 @@ async function upload(req, res, next) {
 // ngay khi tải lại trang) — thêm route xem ảnh gốc qua Drive, không watermark vì đây là ảnh
 // PTG xem cho chính mình, khác endpoint /view có watermark của Client Portal.
 async function view(req, res, next) {
+  setImageResourcePolicy(res);
   try {
     const album = await albumModel.findByIdForPhotographer(
       req.params.albumId,

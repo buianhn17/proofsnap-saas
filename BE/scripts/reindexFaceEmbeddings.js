@@ -23,6 +23,8 @@ async function listPhotos(albumId) {
      FROM photos p
      JOIN albums a ON a.id = p.album_id
      WHERE ($1::uuid IS NULL OR p.album_id = $1)
+       -- L7: album có người dưới 18 tuổi không bao giờ trích embedding khuôn mặt.
+       AND a.is_minor_album = false
      ORDER BY p.album_id, p.created_at`,
     [albumId]
   );

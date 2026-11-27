@@ -100,14 +100,50 @@ async function archiveAlbum(albumId, photographerId) {
 // từ trước / chưa hết hạn / không đặt deadline) — middleware dùng giá trị trả về để phân
 // biệt "vừa hết hạn" với "đã khóa từ trước".
 async function lockAlbumIfExpired(albumId) {
-  const result = await pool.query(
-    `UPDATE albums SET is_locked = true, updated_at = now()
-     WHERE id = $1 AND is_locked = false
-       AND selection_deadline IS NOT NULL AND selection_deadline < now()
-     RETURNING ${ALBUM_COLUMNS}`,
-    [albumId]
-  );
-  return result.rows[0] || null;
+  const locked = await lockExpiredAlbums(albumId);
+  return locked[0] || null;
+}
+
+/**
+ * Mục 5.2 tài liệu gốc — "khách xác nhận hoàn tất (hoặc hệ thống tự khóa khi hết hạn)".
+ * Khoá mọi album (hoặc 1 album nếu truyền albumId) đã qua hạn chọn ảnh, trong CÙNG transaction
+ * ghi nhận các khách đã chọn ít nhất 1 ảnh nhưng chưa bấm "Gửi lựa chọn" là đã chốt tự động
+ * (album_client_completions.auto_locked = true, completed_at = đúng hạn chót) — để PTG thấy
+ * họ ở Bảng điều khiển / Khách hàng như khách đã gửi.
+ * @returns {Promise<object[]>} các album vừa bị khoá
+ */
+async function lockExpiredAlbums(albumId = null) {
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    const locked = await db.query(
+      `UPDATE albums SET is_locked = true, updated_at = now()
+       WHERE is_locked = false AND selection_deadline IS NOT NULL AND selection_deadline < now()
+         AND ($1::uuid IS NULL OR id = $1)
+       RETURNING ${ALBUM_COLUMNS}`,
+      [albumId]
+    );
+    if (locked.rows.length > 0) {
+      await db.query(
+        `INSERT INTO album_client_completions (client_id, completed_at, auto_locked)
+         SELECT c.id, a.selection_deadline, true
+         FROM clients c JOIN albums a ON a.id = c.album_id
+         WHERE a.id = ANY($1::uuid[])
+           AND EXISTS (SELECT 1 FROM selections s WHERE s.client_id = c.id)
+         ON CONFLICT (client_id) DO UPDATE
+           SET completed_at = EXCLUDED.completed_at, auto_locked = true
+           WHERE album_client_completions.completed_at IS NULL`,
+        [locked.rows.map((row) => row.id)]
+      );
+    }
+    await db.query("COMMIT");
+    return locked.rows;
+  } catch (error) {
+    await db.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    db.release();
+  }
 }
 
 module.exports = {
@@ -118,4 +154,5 @@ module.exports = {
   updateAlbum,
   archiveAlbum,
   lockAlbumIfExpired,
+  lockExpiredAlbums,
 };

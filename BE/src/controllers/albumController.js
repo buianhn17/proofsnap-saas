@@ -2,6 +2,7 @@ const path = require("node:path");
 const bcrypt = require("bcryptjs");
 const albumModel = require("../models/albumModel");
 const photoModel = require("../models/photoModel");
+const { requeueAlbumFaceIndex } = require("../services/faceIndexQueue");
 const {
   createAlbumFolder,
   deleteFolder,
@@ -59,6 +60,17 @@ function validateDeadline(value) {
     throw error;
   }
   return new Date(value).toISOString();
+}
+
+// Hạn chót nằm trong quá khứ sẽ khoá album ngay khi tạo — gần như chắc chắn là nhập nhầm
+// (VD chọn nhầm năm). Muốn đóng album sớm thì dùng công tắc "Khoá album".
+function assertFutureDeadline(iso) {
+  if (iso && Date.parse(iso) <= Date.now()) {
+    const error = new Error("Hạn chót chọn ảnh phải ở thời điểm trong tương lai");
+    error.statusCode = 400;
+    error.code = "DEADLINE_IN_PAST";
+    throw error;
+  }
 }
 
 function validatePreset(value) {
@@ -125,6 +137,7 @@ async function create(req, res, next) {
       "max_selectable_photos"
     );
     const selectionDeadline = validateDeadline(body.selection_deadline);
+    assertFutureDeadline(selectionDeadline);
     const watermarkEnabled = body.watermark_enabled !== false;
     const isMinorAlbum = body.is_minor_album === true;
     const photographerId = getPhotographerId(req);
@@ -200,6 +213,9 @@ async function update(req, res, next) {
     }
     if (fields.selection_deadline !== undefined) {
       fields.selection_deadline = validateDeadline(fields.selection_deadline);
+      // Chỉ kiểm tra khi PTG ĐỔI hạn chót — form sửa album luôn gửi lại hạn cũ (có thể đã qua).
+      const currentIso = current.selection_deadline ? new Date(current.selection_deadline).toISOString() : null;
+      if (fields.selection_deadline !== currentIso) assertFutureDeadline(fields.selection_deadline);
     }
     if (fields.compression_preset_id !== undefined) {
       fields.compression_preset_id = validatePreset(fields.compression_preset_id);
@@ -225,6 +241,16 @@ async function update(req, res, next) {
     delete fields.pin;
 
     const album = await albumModel.updateAlbum(req.params.albumId, photographerId, fields);
+
+    // L7 — đổi cờ "album có người dưới 18 tuổi": bật thì xoá ngay embedding khuôn mặt đã trích
+    // (tối thiểu hoá dữ liệu sinh trắc học), tắt thì đưa ảnh đã bỏ qua vào hàng đợi trích lại.
+    if (album && fields.is_minor_album !== undefined && fields.is_minor_album !== current.is_minor_album) {
+      if (fields.is_minor_album) {
+        await photoModel.skipFaceIndexForAlbum(album.id);
+      } else {
+        await requeueAlbumFaceIndex(album.id);
+      }
+    }
     res.json({ album });
   } catch (error) {
     next(error);

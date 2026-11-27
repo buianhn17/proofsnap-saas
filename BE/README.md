@@ -33,11 +33,12 @@ Backend cho LensProof SaaS. Giai đoạn hiện tại: khởi tạo project + k�
    (xem `db/init.sql`). Nếu sau này sửa `db/init.sql` mà muốn nó chạy lại,
    phải xóa volume cũ: `docker compose down -v` rồi `docker compose up -d`.
 
-   Schema được version hóa trong `db/migrations/`. Với database đang chạy,
-   có thể áp dụng migration bằng lệnh:
-   ```powershell
-   Get-Content -Raw db/migrations/001_initial_schema.sql | docker compose exec -T db psql -v ON_ERROR_STOP=1 -U lensproof -d lensproof
-   ```
+   Schema được version hóa trong `db/migrations/`. **Backend tự áp dụng migration còn
+   thiếu mỗi lần khởi động** (`src/config/migrations.js`): các file đã chạy được ghi vào
+   bảng `schema_migrations`; DB tạo từ trước (docker nạp `lensproof_schema.sql`, hoặc đã
+   chạy tay bằng psql) được nhận diện và ghi nhận là đã áp dụng ("baselined") thay vì chạy
+   lại. Xem trạng thái tại `GET /api/health` → trường `schema`. Muốn tự chạy migration bằng
+   tay thì đặt `DB_AUTO_MIGRATE=false`.
 
 4. Tải trọng số model AI Face Search (bắt buộc, chỉ cần chạy 1 lần — file binary không
    commit vào git):
@@ -68,6 +69,30 @@ Backend cho LensProof SaaS. Giai đoạn hiện tại: khởi tạo project + k�
    ```
    npm test
    ```
+
+## Biến môi trường bổ sung (hardening L2–L8)
+
+| Biến | Mặc định | Ý nghĩa |
+|---|---|---|
+| `DB_AUTO_MIGRATE` | `true` | `false` = không tự chạy migration khi khởi động |
+| `IMAGE_CORP_POLICY` | `same-site` | Header `Cross-Origin-Resource-Policy` trên `/view`, `/download`. Đặt `cross-origin` nếu FE và API ở 2 site khác nhau (VD `*.vercel.app` + `*.onrender.com`), nếu không ảnh bị chặn trên trang Cull (COEP) |
+| `DEADLINE_JOB_INTERVAL_MS` | `60000` | Chu kỳ job tự khoá album quá hạn chọn ảnh (khách đã chọn ảnh nhưng chưa bấm "Gửi lựa chọn" được ghi nhận là tự chốt, `auto_locked = true`) |
+| `TRUST_PROXY` | (trống) | Số tầng reverse proxy tin cậy (VD `1`) để `req.ip` là IP thật của khách — bắt buộc khi deploy sau proxy, vì khoá nhập PIN (10 lần sai → 429 trong 15 phút) tính theo album + IP |
+
+## API Admin bổ sung (migration 012–013)
+
+Hạn chót chọn ảnh mới phải ở tương lai (`400 DEADLINE_IN_PAST`); sửa album mà giữ nguyên hạn
+cũ (kể cả đã qua) vẫn được.
+
+| Endpoint | Chức năng |
+|---|---|
+| `POST /api/public/albums/:albumId/complete` | Khách xác nhận hoàn tất chọn ảnh (mục 5.2) — khoá thả tim/ghi chú tới khi mở lại; cần ≥ 1 ảnh đã chọn |
+| `POST /api/public/albums/:albumId/complete/reopen` | Khách mở lại để sửa — chỉ khi album chưa hết hạn/khoá |
+| `GET /api/dashboard` | Số liệu tổng quan, hạn chọn ảnh sắp tới, hoạt động gần đây |
+| `GET /api/clients?search=&filter=all\|in_progress\|completed\|unpaid&album_id=` | Khách hàng trong các album của PTG |
+| `GET/PATCH /api/clients/:clientId` | Chi tiết + chuỗi tên file đã chọn; PTG tự đánh dấu thanh toán `unpaid/deposit/paid` (mục 3.2, không có cổng thanh toán) |
+| `GET /api/clients/unseen-count` · `POST /api/clients/seen` | Huy hiệu số khách mới gửi lựa chọn trên tab Khách hàng (migration 013) |
+| `GET/PATCH /api/settings` | Tên hiển thị + mặc định khi tạo album (preset nén, watermark, số ảnh tối đa, số ngày hạn chọn) |
 
 ## Quản lý API bằng Swagger
 

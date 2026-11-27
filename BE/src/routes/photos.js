@@ -1,10 +1,13 @@
 const express = require("express");
+const { registerUuidParams } = require("../middlewares/validateUuidParams");
 const multer = require("multer");
 const photoController = require("../controllers/photoController");
 const photoNotesController = require("../controllers/photoNotesController");
 const { requireAuth } = require("../middlewares/authMiddleware");
 
 const router = express.Router({ mergeParams: true });
+// L4 — ID sai định dạng trả 404 JSON thay vì lỗi 22P02 (500) từ PostgreSQL.
+registerUuidParams(router, ["photoId"]);
 // Vùng cắt khuôn mặt tối đa mỗi ảnh (ảnh tập thể cả khối) — khớp MAX_FACE_CROPS ở FE
 // (src/lib/upload/uploadPrep.worker.ts).
 const MAX_FACE_CROPS = 150;

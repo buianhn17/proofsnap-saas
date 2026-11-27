@@ -17,6 +17,7 @@ const {
 const { downloadFileStream, downloadFileBuffer } = require("../services/googleDriveService");
 const { detectFaces, largestFace } = require("../services/arcfaceService");
 const { streamPhotosAsZip } = require("../services/zipStreamService");
+const { setImageResourcePolicy } = require("../utils/imageHeaders");
 
 const WATERMARK_CACHE_TTL_SECONDS = 60 * 60 * 24;
 
@@ -78,6 +79,50 @@ function watermarkCacheKey(photoId, name, phone, size) {
   return size ? `watermark:${photoId}:${size}:${identity}` : `watermark:${photoId}:${identity}`;
 }
 
+// L8 (NFR-02) — chống dò PIN: sai quá PIN_MAX_FAILED_ATTEMPTS lần → khoá PIN_LOCK_SECONDS
+// theo cặp (album, IP). Đếm trong Redis: key pin_fail:{albumId}:{ip}. Cửa sổ đếm 15 phút tính
+// từ lần sai đầu tiên; lần sai thứ 10 đặt lại TTL để khoá trọn 15 phút kể từ lúc đó.
+const PIN_MAX_FAILED_ATTEMPTS = 10;
+const PIN_LOCK_SECONDS = 15 * 60;
+
+function pinFailKey(albumId, ip) {
+  return `pin_fail:${albumId}:${ip || "unknown"}`;
+}
+
+/** Số giây còn khoá, hoặc 0 nếu chưa bị khoá. Redis lỗi → không khoá (ghi log), tránh chặn mọi khách. */
+async function pinLockRemainingSeconds(key) {
+  try {
+    const [count, ttl] = await redis.multi().get(key).ttl(key).exec().then((rows) => rows.map(([, v]) => v));
+    if (Number(count) >= PIN_MAX_FAILED_ATTEMPTS) return ttl > 0 ? ttl : PIN_LOCK_SECONDS;
+    return 0;
+  } catch (error) {
+    console.error("Không đọc được bộ đếm sai PIN từ Redis:", error.message);
+    return 0;
+  }
+}
+
+async function recordPinFailure(key) {
+  try {
+    // SET NX EX tạo key kèm TTL ở lần sai đầu tiên (không ghi đè TTL ở các lần sau).
+    const rows = await redis.multi().set(key, 0, "EX", PIN_LOCK_SECONDS, "NX").incr(key).exec();
+    const count = Number(rows[1][1]);
+    if (count >= PIN_MAX_FAILED_ATTEMPTS) await redis.expire(key, PIN_LOCK_SECONDS);
+    return count;
+  } catch (error) {
+    console.error("Không ghi được bộ đếm sai PIN vào Redis:", error.message);
+    return null;
+  }
+}
+
+function sendPinLocked(res, retryAfterSeconds) {
+  res.setHeader("Retry-After", String(retryAfterSeconds));
+  return res.status(429).json({
+    error: "TOO_MANY_PIN_ATTEMPTS",
+    message: `Bạn đã nhập sai PIN quá ${PIN_MAX_FAILED_ATTEMPTS} lần. Vui lòng thử lại sau ${Math.ceil(retryAfterSeconds / 60)} phút.`,
+    retry_after_seconds: retryAfterSeconds,
+  });
+}
+
 async function verifyPin(req, res, next) {
   try {
     const album = await albumModel.findPublicById(req.params.albumId);
@@ -89,8 +134,23 @@ async function verifyPin(req, res, next) {
     }
 
     const { pin, name, phone } = req.body || {};
-    if (album.pin_enabled && (typeof pin !== "string" || !(await bcrypt.compare(pin, album.pin_hash)))) {
-      return res.status(401).json({ error: "INVALID_ALBUM_PIN", message: "Mã PIN không đúng" });
+    if (album.pin_enabled) {
+      const failKey = pinFailKey(album.id, req.ip);
+      const lockedFor = await pinLockRemainingSeconds(failKey);
+      if (lockedFor > 0) return sendPinLocked(res, lockedFor);
+
+      if (typeof pin !== "string" || !(await bcrypt.compare(pin, album.pin_hash))) {
+        const failures = await recordPinFailure(failKey);
+        if (failures !== null && failures >= PIN_MAX_FAILED_ATTEMPTS) {
+          return sendPinLocked(res, PIN_LOCK_SECONDS);
+        }
+        return res.status(401).json({
+          error: "INVALID_ALBUM_PIN",
+          message: "Mã PIN không đúng",
+          attempts_remaining: failures === null ? undefined : PIN_MAX_FAILED_ATTEMPTS - failures,
+        });
+      }
+      await redis.del(failKey).catch(() => {});
     }
     const identity = validateClientIdentity(name, phone);
     const token = jwt.sign(
@@ -114,15 +174,33 @@ async function verifyPin(req, res, next) {
   }
 }
 
+// Khách hiện tại (chỉ đọc, KHÔNG tạo mới) — null nếu khách chưa từng tương tác trong album.
+async function findCurrentClient(req, albumId) {
+  const clientAccount = await clientModel.findClientAccountByPhone(req.client.clientPhone);
+  return clientAccount ? clientModel.findClient({ albumId, clientAccountId: clientAccount.id }) : null;
+}
+
+function sendSelectionCompleted(res, completion) {
+  return res.status(409).json({
+    error: "SELECTION_COMPLETED",
+    message: "Bạn đã xác nhận hoàn tất chọn ảnh. Mở lại lựa chọn để thay đổi.",
+    completed_at: completion.completed_at,
+  });
+}
+
 async function getAlbum(req, res, next) {
   try {
     const album = await albumModel.findPublicById(req.params.albumId);
     if (!album || album.status !== "active") {
       return res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
     }
+    const client = await findCurrentClient(req, album.id);
+    const completion = client ? await clientModel.findCompletion(client.id) : null;
     res.json({
       album: publicAlbum(album),
       client: { name: req.client.clientName, phone: req.client.clientPhone },
+      // Mục 5.2 — khách đã xác nhận hoàn tất chọn ảnh chưa (null = đang chọn).
+      completion: completion ? { completed_at: completion.completed_at } : null,
       // Bước 2.1 — FE tính lệch giờ máy khách so với server từ trường này, để đồng hồ đếm
       // ngược không phụ thuộc vào giờ hệ thống của trình duyệt (BE vẫn là nơi chốt hạn thật).
       server_time: new Date().toISOString(),
@@ -170,13 +248,26 @@ async function listPhotos(req, res, next) {
         is_best_in_cluster,
       })
     );
-    res.json({ photos: publicPhotos });
+    // L5 — trạng thái thả tim của CHÍNH khách này (chỉ đọc, không tạo client record), để
+    // gallery hiện lại đúng tim + "Đã chọn X / Y ảnh" sau khi tải lại trang/đổi thiết bị.
+    const client = await findCurrentClient(req, albumId);
+    const selectedIds = new Set(client ? await clientModel.listSelectedPhotoIds(client.id) : []);
+    const completion = client ? await clientModel.findCompletion(client.id) : null;
+    res.json({
+      photos: publicPhotos.map((photo) => ({ ...photo, is_selected: selectedIds.has(photo.id) })),
+      selection: {
+        selected_count: selectedIds.size,
+        max_selectable_photos: album.max_selectable_photos ?? null,
+        completed_at: completion?.completed_at ?? null,
+      },
+    });
   } catch (error) {
     next(error);
   }
 }
 
 async function viewPhoto(req, res, next) {
+  setImageResourcePolicy(res);
   try {
     const { albumId, photoId } = req.params;
     if (req.client.albumId !== albumId) {
@@ -282,12 +373,27 @@ async function toggleSelection(req, res, next) {
       albumId,
       clientAccountId: clientAccount.id,
     });
-    const { selected } = await clientModel.toggleSelection({
-      clientId: client.id,
-      photoId,
-    });
+    const completion = await clientModel.findCompletion(client.id);
+    if (completion) return sendSelectionCompleted(res, completion);
 
-    res.json({ selected });
+    try {
+      const { selected, selectedCount, maxSelectable } = await clientModel.toggleSelection({
+        albumId,
+        clientId: client.id,
+        photoId,
+      });
+      res.json({ selected, selected_count: selectedCount, max_selectable_photos: maxSelectable });
+    } catch (error) {
+      if (error instanceof clientModel.SelectionLimitError) {
+        return res.status(409).json({
+          error: error.code,
+          message: error.message,
+          selected_count: error.selectedCount,
+          max_selectable_photos: error.maxSelectable,
+        });
+      }
+      throw error;
+    }
   } catch (error) {
     next(error);
   }
@@ -358,6 +464,9 @@ async function createAnnotation(req, res, next) {
       clientAccountId: clientAccount.id,
     });
 
+    const completion = await clientModel.findCompletion(client.id);
+    if (completion) return sendSelectionCompleted(res, completion);
+
     const annotation = await annotationModel.createAnnotation({
       photoId,
       clientId: client.id,
@@ -413,6 +522,7 @@ async function listAnnotationsForPhoto(req, res, next) {
 //     trong album thả tim — đúng 2 nguồn ảnh mục 4.2 đã nêu, ưu tiên ảnh hậu kỳ nếu PTG có
 //     làm bước đó, fallback về ảnh gốc nếu chưa.
 async function downloadZip(req, res, next) {
+  setImageResourcePolicy(res);
   try {
     const { albumId } = req.params;
     if (req.client.albumId !== albumId) {
@@ -511,6 +621,7 @@ async function listDownloadablePhotos(req, res, next) {
 // dynamic). ?quality=original (mặc định) stream nguyên file gốc từ Drive; ?quality=optimized
 // trả bản thu nhỏ DOWNLOAD_OPTIMIZED_PRESET.
 async function downloadPhoto(req, res, next) {
+  setImageResourcePolicy(res);
   try {
     const album = await loadUnlockedAlbumForDownload(req, res);
     if (!album) return;
@@ -556,14 +667,13 @@ async function downloadPhoto(req, res, next) {
   }
 }
 
-// Bước 3.1/3.3 — trạng thái hiệu lực vị thành niên của 1 client: ưu tiên override riêng
-// (clients.is_minor_flagged), NULL thì lấy theo mặc định của cả album (albums.is_minor_album)
-// — đúng quy tắc đã ghi ở mục 11 lensproof_schema.sql.
+// Bước 3.1/3.3 — trạng thái hiệu lực vị thành niên của 1 client.
+// L9 — cờ album "có người dưới 18 tuổi" là TUYỆT ĐỐI: khách tự khai "Trên 18 tuổi" không được
+// mở lại face search trong album đó (trước đây override của khách thắng cờ album theo cả 2
+// chiều). Override riêng (clients.is_minor_flagged = true) chỉ còn tác dụng siết thêm: khách tự
+// khai "Dưới 18 tuổi" trong album thường thì bị chặn.
 function effectiveIsMinor(album, client) {
-  if (client && client.is_minor_flagged !== null && client.is_minor_flagged !== undefined) {
-    return client.is_minor_flagged;
-  }
-  return album.is_minor_album;
+  return album.is_minor_album === true || client?.is_minor_flagged === true;
 }
 
 // Bước 3.1 — GET trạng thái đồng ý, để FE quyết định hiện màn hình đồng ý hay cho vào thẳng
@@ -766,6 +876,45 @@ async function searchByFace(req, res, next) {
   }
 }
 
+// Mục 5.2 — khách xác nhận hoàn tất chọn ảnh. Sau khi hoàn tất, thả tim/ghi chú bị khoá cho
+// tới khi khách mở lại (chỉ được mở lại khi album chưa hết hạn/khoá — enforceAlbumNotExpired).
+// PTG thấy ngay ở Bảng điều khiển / Khách hàng, kèm chuỗi tên file đã chọn.
+async function completeSelection(req, res, next) {
+  try {
+    const { albumId } = req.params;
+    const album = await albumModel.findPublicById(albumId);
+    if (!album || album.status !== "active") {
+      return res.status(404).json({ error: "ALBUM_NOT_FOUND", message: "Không tìm thấy album" });
+    }
+    const client = await findCurrentClient(req, albumId);
+    const selectedIds = client ? await clientModel.listSelectedPhotoIds(client.id) : [];
+    if (!client || selectedIds.length === 0) {
+      return res.status(409).json({
+        error: "NO_SELECTION",
+        message: "Bạn cần chọn ít nhất 1 ảnh trước khi xác nhận hoàn tất.",
+      });
+    }
+    const completion = await clientModel.markCompleted(client.id);
+    res.json({
+      completion: { completed_at: completion.completed_at },
+      selected_count: selectedIds.length,
+      max_selectable_photos: album.max_selectable_photos ?? null,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function reopenSelection(req, res, next) {
+  try {
+    const client = await findCurrentClient(req, req.params.albumId);
+    if (client) await clientModel.reopenCompletion(client.id);
+    res.json({ completion: null });
+  } catch (error) {
+    next(error);
+  }
+}
+
 function logout(req, res) {
   res.clearCookie("client_session_token");
   res.json({ message: "Đã đăng xuất khỏi album" });
@@ -778,6 +927,8 @@ module.exports = {
   listPhotos,
   viewPhoto,
   toggleSelection,
+  completeSelection,
+  reopenSelection,
   createAnnotation,
   listAnnotationsForPhoto,
   getFaceSearchConsentStatus,

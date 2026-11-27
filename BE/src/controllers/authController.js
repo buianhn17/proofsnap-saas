@@ -80,7 +80,7 @@ async function googleCallback(req, res) {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    res.redirect(new URL("/admin/albums", process.env.CLIENT_URL).toString());
+    res.redirect(new URL("/admin/dashboard", process.env.CLIENT_URL).toString());
   } catch (err) {
     console.error("Lỗi Google OAuth callback:", err.message);
     redirectToLoginWithError(res, "oauth_failed");

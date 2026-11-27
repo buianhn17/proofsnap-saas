@@ -128,6 +128,8 @@ const photoSubmission = {
 };
 
 before(async () => {
+  // Schema luôn ở bản mới nhất (migration runner L2) — chạy được trên DB test trống.
+  await require("../src/config/migrations").runMigrations({ logger: { log() {} } });
   await createUser("studio", "Studio Ánh Dương");
   await createUser("photo", "Nguyễn Văn A");
   await createUser("video", "Trần Văn B");

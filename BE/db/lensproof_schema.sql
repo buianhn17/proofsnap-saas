@@ -119,7 +119,7 @@ CREATE TABLE photos (
     is_best_in_cluster     BOOLEAN NOT NULL DEFAULT false,
     -- trích embedding khuôn mặt chạy nền sau upload (migration 008)
     face_index_status      TEXT NOT NULL DEFAULT 'done'
-                           CHECK (face_index_status IN ('pending','done','failed')),
+                           CHECK (face_index_status IN ('pending','done','failed','skipped')),  -- skipped: album vị thành niên (migration 011)
     face_index_attempts    SMALLINT NOT NULL DEFAULT 0,
     client_upload_id       UUID,                        -- chống upload trùng khi trình duyệt thử lại
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -229,8 +229,9 @@ CREATE INDEX idx_clients_account ON clients(client_account_id);
 -- không duplicate ở bảng này nữa (tránh 2 nguồn sự thật lệch nhau).
 -- Lưu ý pháp lý (mục 6.2, 9.1): mọi lệnh gọi AI Face Search phải kiểm tra
 -- face_search_consent_at IS NOT NULL trước khi xử lý. Trạng thái vị thành niên
--- hiệu lực (effective) của 1 client = clients.is_minor_flagged nếu khác NULL,
--- ngược lại lấy theo albums.is_minor_album. Nếu trạng thái hiệu lực = true,
+-- hiệu lực (effective) của 1 client = albums.is_minor_album OR
+-- clients.is_minor_flagged = true (L9: cờ album là tuyệt đối, khách tự khai "Trên 18"
+-- không mở lại được album đã đánh dấu). Nếu trạng thái hiệu lực = true,
 -- cần luồng đồng ý chặt hơn (ví dụ xác nhận qua PTG/phụ huynh) — quy trình cụ
 -- thể (ai xác nhận, lưu bằng chứng đồng ý ra sao) CHƯA được đặc tả, cần bạn
 -- chốt trước khi build tính năng AI Face Search cho album loại này.

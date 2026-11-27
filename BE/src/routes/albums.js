@@ -1,4 +1,5 @@
 const express = require("express");
+const { registerUuidParams } = require("../middlewares/validateUuidParams");
 const multer = require("multer");
 const albumController = require("../controllers/albumController");
 const selectionController = require("../controllers/selectionController");
@@ -9,6 +10,8 @@ const filenameExportController = require("../controllers/filenameExportControlle
 const { requireAuth } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
+// L4 — ID sai định dạng trả 404 JSON thay vì lỗi 22P02 (500) từ PostgreSQL.
+registerUuidParams(router, ["albumId", "annotationId"]);
 
 // Bước 4.2 — upload file .zip ảnh đã hậu kỳ (tùy chọn, xem albumController.uploadZip).
 const uploadZipMiddleware = multer({

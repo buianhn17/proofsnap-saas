@@ -2,12 +2,17 @@ require("dotenv").config();
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { before } = require("node:test");
 const request = require("supertest");
 const { loadEnv } = require("../src/config/env");
 
 loadEnv();
 const { createApp } = require("../src/app");
 const app = createApp();
+
+before(async () => {
+  await require("../src/config/migrations").runMigrations({ logger: { log() {} } });
+});
 
 test("GET / returns a running backend message", async () => {
   const response = await request(app).get("/");

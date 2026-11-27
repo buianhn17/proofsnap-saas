@@ -68,8 +68,16 @@ async function removeCrops(photoId) {
 }
 
 async function indexPhoto(job) {
-  if (!(await photoModel.existsById(job.photoId))) {
+  const context = await photoModel.findFaceIndexContext(job.photoId);
+  if (!context) {
     // Ảnh/album đã bị xoá trong lúc chờ.
+    await removeCrops(job.photoId);
+    return;
+  }
+  if (context.is_minor_album) {
+    // L7 — album có người dưới 18 tuổi (PTG có thể bật cờ khi ảnh còn trong hàng đợi): không
+    // dò mặt, không trích embedding; xoá luôn vùng cắt khuôn mặt đã lưu tạm trên đĩa.
+    await photoModel.setFaceIndexStatus(job.photoId, "skipped");
     await removeCrops(job.photoId);
     return;
   }
@@ -148,4 +156,13 @@ async function resumePendingFaceIndex() {
   return pending.length;
 }
 
-module.exports = { saveCrops, enqueueFaceIndex, resumePendingFaceIndex };
+/** L7 — PTG tắt cờ vị thành niên: trích lại embedding cho các ảnh đã bỏ qua. */
+async function requeueAlbumFaceIndex(albumId) {
+  const photos = await photoModel.requeueSkippedFaceIndex(albumId);
+  for (const photo of photos) {
+    enqueueFaceIndex({ photoId: photo.id, photographerId: photo.photographer_id, driveFileId: photo.drive_file_id });
+  }
+  return photos.length;
+}
+
+module.exports = { saveCrops, enqueueFaceIndex, resumePendingFaceIndex, requeueAlbumFaceIndex, indexPhoto };

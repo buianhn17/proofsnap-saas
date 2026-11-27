@@ -50,15 +50,16 @@ async function createPhoto({
   burstClusterId,
   isBestInCluster,
   clientUploadId,
+  faceIndexStatus = "pending",
 }) {
   // face_index_status = 'pending': embedding khuôn mặt được trích nền sau khi trả lời upload
-  // (faceIndexQueue.js).
+  // (faceIndexQueue.js). 'skipped': album vị thành niên, không bao giờ trích (L7).
   const result = await pool.query(
     `INSERT INTO photos (
       album_id, drive_file_id, original_base_filename, width, height,
       file_size_bytes, captured_at, sharpness_score, eye_status, culling_flag,
       scene_id, burst_cluster_id, is_best_in_cluster, client_upload_id, face_index_status
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending')
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
     RETURNING ${PHOTO_COLUMNS}`,
     [
       albumId,
@@ -75,6 +76,7 @@ async function createPhoto({
       burstClusterId ?? null,
       isBestInCluster ?? false,
       clientUploadId ?? null,
+      faceIndexStatus,
     ]
   );
   return result.rows[0];
@@ -96,14 +98,64 @@ async function incrementFaceIndexAttempts(photoId) {
   return result.rows[0]?.face_index_attempts ?? null;
 }
 
-/** Ảnh còn chờ trích embedding — chạy tiếp khi server khởi động lại. */
+/** Ảnh còn chờ trích embedding — chạy tiếp khi server khởi động lại. Bỏ qua album vị thành niên (L7). */
 async function listPendingFaceIndex() {
   const result = await pool.query(
     `SELECT p.id, p.drive_file_id, a.photographer_id
      FROM photos p
      JOIN albums a ON a.id = p.album_id
-     WHERE p.face_index_status = 'pending'
+     WHERE p.face_index_status = 'pending' AND a.is_minor_album = false
      ORDER BY p.created_at ASC`
+  );
+  return result.rows;
+}
+
+/** null nếu ảnh đã bị xoá; is_minor_album để hàng đợi bỏ qua album vị thành niên (L7). */
+async function findFaceIndexContext(photoId) {
+  const result = await pool.query(
+    `SELECT p.id, a.is_minor_album
+     FROM photos p JOIN albums a ON a.id = p.album_id
+     WHERE p.id = $1`,
+    [photoId]
+  );
+  return result.rows[0] || null;
+}
+
+/**
+ * L7 — album chuyển sang "có người dưới 18 tuổi": xoá mọi embedding khuôn mặt đã trích của
+ * album và đánh dấu ảnh là 'skipped' (tối thiểu hoá dữ liệu sinh trắc học).
+ */
+async function skipFaceIndexForAlbum(albumId) {
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    const deleted = await db.query(
+      `DELETE FROM photo_face_embeddings e USING photos p
+       WHERE e.photo_id = p.id AND p.album_id = $1`,
+      [albumId]
+    );
+    await db.query(
+      "UPDATE photos SET face_index_status = 'skipped', face_index_attempts = 0 WHERE album_id = $1",
+      [albumId]
+    );
+    await db.query("COMMIT");
+    return deleted.rowCount;
+  } catch (error) {
+    await db.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    db.release();
+  }
+}
+
+/** L7 — PTG tắt cờ vị thành niên: đưa các ảnh 'skipped' về 'pending' để hàng đợi trích lại. */
+async function requeueSkippedFaceIndex(albumId) {
+  const result = await pool.query(
+    `UPDATE photos p SET face_index_status = 'pending', face_index_attempts = 0
+     FROM albums a
+     WHERE p.album_id = a.id AND p.album_id = $1 AND p.face_index_status = 'skipped'
+     RETURNING p.id, p.drive_file_id, a.photographer_id`,
+    [albumId]
   );
   return result.rows;
 }
@@ -153,4 +205,7 @@ module.exports = {
   incrementFaceIndexAttempts,
   listPendingFaceIndex,
   existsById,
+  findFaceIndexContext,
+  skipFaceIndexForAlbum,
+  requeueSkippedFaceIndex,
 };

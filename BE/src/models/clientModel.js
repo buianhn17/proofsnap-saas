@@ -61,20 +61,94 @@ async function findOrCreateClient({ albumId, clientAccountId }) {
   return result.rows[0];
 }
 
-async function toggleSelection({ clientId, photoId }) {
-  const deleted = await pool.query(
-    "DELETE FROM selections WHERE client_id = $1 AND photo_id = $2 RETURNING id",
-    [clientId, photoId]
-  );
-  if (deleted.rows.length > 0) {
-    return { selected: false };
+class SelectionLimitError extends Error {
+  constructor({ maxSelectable, selectedCount }) {
+    super(`Bạn đã chọn đủ ${maxSelectable} ảnh — bỏ chọn bớt 1 ảnh để chọn ảnh khác`);
+    this.statusCode = 409;
+    this.code = "SELECTION_LIMIT_REACHED";
+    this.maxSelectable = maxSelectable;
+    this.selectedCount = selectedCount;
   }
+}
 
-  await pool.query(
-    "INSERT INTO selections (client_id, photo_id) VALUES ($1, $2)",
-    [clientId, photoId]
+/**
+ * L5 (FR-07) — thả/bỏ tim trong 1 transaction có khoá, để 2 lượt bấm song song (2 tab, bấm
+ * nhanh liên tiếp) không vượt được albums.max_selectable_photos:
+ *   - FOR UPDATE trên dòng clients: các lượt thả tim của CÙNG 1 khách chạy tuần tự.
+ *   - FOR SHARE trên dòng albums: PTG không đổi hạn mức giữa lúc đếm và lúc ghi.
+ * Bỏ chọn luôn được phép (kể cả khi PTG vừa hạ hạn mức xuống thấp hơn số đã chọn).
+ * @returns {Promise<{ selected: boolean, selectedCount: number, maxSelectable: number|null }>}
+ */
+async function toggleSelection({ albumId, clientId, photoId }) {
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    const album = await db.query(
+      "SELECT max_selectable_photos FROM albums WHERE id = $1 FOR SHARE",
+      [albumId]
+    );
+    await db.query("SELECT id FROM clients WHERE id = $1 FOR UPDATE", [clientId]);
+    const maxSelectable = album.rows[0]?.max_selectable_photos ?? null;
+
+    const deleted = await db.query(
+      "DELETE FROM selections WHERE client_id = $1 AND photo_id = $2 RETURNING id",
+      [clientId, photoId]
+    );
+    const countResult = await db.query(
+      "SELECT count(*)::int AS n FROM selections WHERE client_id = $1",
+      [clientId]
+    );
+    let selectedCount = countResult.rows[0].n;
+
+    if (deleted.rows.length > 0) {
+      await db.query("COMMIT");
+      return { selected: false, selectedCount, maxSelectable };
+    }
+    if (maxSelectable !== null && selectedCount >= maxSelectable) {
+      throw new SelectionLimitError({ maxSelectable, selectedCount });
+    }
+    await db.query("INSERT INTO selections (client_id, photo_id) VALUES ($1, $2)", [clientId, photoId]);
+    selectedCount += 1;
+    await db.query("COMMIT");
+    return { selected: true, selectedCount, maxSelectable };
+  } catch (error) {
+    await db.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    db.release();
+  }
+}
+
+/** Mốc khách xác nhận hoàn tất chọn ảnh (null nếu chưa hoặc đã mở lại). */
+async function findCompletion(clientId) {
+  const result = await pool.query(
+    "SELECT completed_at, auto_locked FROM album_client_completions WHERE client_id = $1",
+    [clientId]
   );
-  return { selected: true };
+  return result.rows[0]?.completed_at ? result.rows[0] : null;
+}
+
+/** Khách xác nhận hoàn tất (mục 5.2 tài liệu gốc). Trả về { completed_at } mới. */
+async function markCompleted(clientId) {
+  const result = await pool.query(
+    `INSERT INTO album_client_completions (client_id, completed_at, auto_locked)
+     VALUES ($1, now(), false)
+     ON CONFLICT (client_id) DO UPDATE SET completed_at = now(), auto_locked = false
+     RETURNING completed_at, auto_locked`,
+    [clientId]
+  );
+  return result.rows[0];
+}
+
+/** Khách mở lại để sửa lựa chọn (chỉ khi album chưa hết hạn/khoá — kiểm tra ở route). */
+async function reopenCompletion(clientId) {
+  await pool.query("UPDATE album_client_completions SET completed_at = NULL WHERE client_id = $1", [clientId]);
+}
+
+/** Id các ảnh khách này đã thả tim trong album (để Client Portal hiện lại trạng thái sau khi tải lại trang). */
+async function listSelectedPhotoIds(clientId) {
+  const result = await pool.query("SELECT photo_id FROM selections WHERE client_id = $1", [clientId]);
+  return result.rows.map((row) => row.photo_id);
 }
 
 // Bước 3.1 — set mốc đồng ý lần đầu (idempotent: không ghi đè nếu đã đồng ý từ trước, giữ
@@ -92,8 +166,8 @@ async function setFaceSearchConsent(clientId) {
 
 // Bước — khách tự khai độ tuổi ngay trong màn hình xin phép (Trên 18 / Dưới 18 tuổi). Ghi
 // đè is_minor_flagged của CHÍNH client này (không đụng albums.is_minor_album, vốn là mặc
-// định PTG đặt cho cả album) — effectiveIsMinor() ở clientController.js ưu tiên giá trị này
-// nếu khác NULL.
+// định PTG đặt cho cả album). Từ L9, effectiveIsMinor() ở clientController.js coi cờ album là
+// tuyệt đối: giá trị này chỉ siết thêm (true chặn khách), không mở lại album đã đánh dấu <18.
 async function setMinorFlagged(clientId, isMinor) {
   const result = await pool.query(
     `UPDATE clients SET is_minor_flagged = $2 WHERE id = $1
@@ -159,6 +233,11 @@ module.exports = {
   findClient,
   findClientById,
   toggleSelection,
+  listSelectedPhotoIds,
+  findCompletion,
+  markCompleted,
+  reopenCompletion,
+  SelectionLimitError,
   listSelectionsForAlbum,
   setFaceSearchConsent,
   setMinorFlagged,
